@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mapa de Inmuebles</title>
+<meta name="description" content="Consumo y costo de energía eléctrica de los inmuebles de gobierno en Tamaulipas.">
+<!-- Los datos estáticos se piden desde el primer instante, sin esperar a que cargue el JavaScript -->
+<link rel="preload" href="/data/estado.json" as="fetch" crossorigin>
+<link rel="preload" href="/data/municipios.json" as="fetch" crossorigin>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
