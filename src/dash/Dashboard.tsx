@@ -223,8 +223,14 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
   const d = useMemo(() => {
     const c = PAL[theme].c, col = v.col;
     const am = by(R, (r) => r.per), ams = keys(am);
-    const ch1: Cfg = { type: "bar", data: { labels: ams, datasets: [{ label: "Demanda máxima agregada (kW)", data: ams.map((k) => sumRpuMes(am.get(k)!, (r) => r.kwEst)), backgroundColor: c[0] }] },
-      options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (y: any) => KW(y.raw) } } }, scales: { x: XT, y: { title: { display: true, text: "kW" } } } } };
+    // Misma gráfica que en General (demanda por tarifa) más la línea del total con PDBT y domésticas a su máximo permitido
+    const ch1: Cfg = { ...v.charts.cG, data: { ...v.charts.cG.data, datasets: [
+      { type: "line", label: "Total si PDBT y domésticas usaran su máximo permitido", order: 1,
+        data: ams.map((k) => sumRpuMes(am.get(k)!, (r) => limiteKw(r.tar) || r.kwEst)),
+        borderColor: PAL[theme].mut, backgroundColor: PAL[theme].mut, borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0.2 },
+      ...v.charts.cG.data.datasets.map((x: any) => ({ ...x, type: "bar", order: 2 }))] },
+      options: { ...v.charts.cG.options, plugins: { tooltip: { callbacks: { label: (y: any) => `${y.dataset.label}: ${KW(y.raw ?? 0)}`,
+        footer: (it: any[]) => "Total estimado: " + KW(it.filter((y) => y.dataset.type !== "line").reduce((s2, y) => s2 + (y.raw ?? 0), 0)) } } } } };
 
     // Demanda máxima individual: un RPU; medida si la trae, estimada si no
     const pool = (tsel ? R.filter((r) => r.tar === tsel) : R).filter((r) => r.kwEst > 0);
@@ -410,8 +416,8 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
 
         {tab === "dm" && (
           <div className="d-grid">
-            <div className="d-card w12"><h2>Demanda máxima agregada por mes</h2><ChartCanvas config={d.ch1} theme={theme} />
-              <p className="d-mut">Todas las tarifas: suma, mes a mes, de la demanda de cada recibo (medida y validada, o estimada si no trae lectura).</p></div>
+            <div className="d-card w12"><h2>Demanda máxima agregada por mes</h2><ChartCanvas config={d.ch1} theme={theme} tall />
+              <p className="d-mut">Suma mensual de la demanda de cada recibo, apilada por tarifa (medida y validada, o estimada si no trae lectura). La línea punteada es el total si PDBT y domésticas llegaran a su máximo permitido ({PDBT_MAX_KW} kW en PDBT; {LIMITE_DOMESTICA_KW} kW en domésticas); las demás tarifas se mantienen con su demanda.</p></div>
 
             <div className="d-card w12"><h2>Demanda máxima individual</h2>
               <div className="d-bar"><label>Tarifa<select value={tsel} onChange={(e) => setTsel(e.target.value)}><option value="">General (todas las tarifas)</option>
