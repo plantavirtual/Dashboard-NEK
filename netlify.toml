@@ -1,0 +1,32 @@
+# Netlify: compila el proyecto (Vite) y publica la carpeta dist
+[build]
+  command = "npm run build"   # Netlify instala las dependencias antes; build = tsc --noEmit && vite build
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# App de una sola página: cualquier ruta sirve index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Datos oficiales (tarifas CFE y NodosP): que el navegador revise si hay versión nueva
+[[headers]]
+  for = "/data/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Archivos con hash de Vite: caché larga
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
