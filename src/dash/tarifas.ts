@@ -97,17 +97,22 @@ export function indiceTarifas(t: TarifasJson | null): Busca {
   };
 }
 
-/** municipio → zona de carga CENACE (la más frecuente entre los NodosP del municipio) */
-export function indiceNodos(n: NodosJson | null): Map<string, string> {
-  const cnt = new Map<string, Map<string, number>>();
+/**
+ * Zona de carga CENACE: primero por el NodoP capturado en el inmueble (columna «nodo»);
+ * si no viene o no está en el catálogo, por el municipio (la zona de carga más frecuente entre sus NodosP).
+ */
+export function indiceNodos(n: NodosJson | null) {
+  const cnt = new Map<string, Map<string, number>>(), porClave = new Map<string, string>();
   for (const nd of n?.nodos ?? []) {
-    if (!nd.municipio || !nd.zonaCarga) continue;
+    if (!nd.zonaCarga) continue;
+    if (nd.clave) porClave.set(normTxt(nd.clave), nd.zonaCarga);
+    if (!nd.municipio) continue;
     const k = normTxt(nd.municipio), m = cnt.get(k) ?? new Map<string, number>();
     m.set(nd.zonaCarga, (m.get(nd.zonaCarga) ?? 0) + 1); cnt.set(k, m);
   }
-  const out = new Map<string, string>();
-  for (const [k, m] of cnt) out.set(k, [...m].sort((a, b) => b[1] - a[1])[0][0]);
-  return out;
+  const porMun = new Map<string, string>();
+  for (const [k, m] of cnt) porMun.set(k, [...m].sort((a, b) => b[1] - a[1])[0][0]);
+  return (nodoP: string, mun: string) => (nodoP && porClave.get(normTxt(nodoP))) || porMun.get(normTxt(mun)) || "Sin nodo";
 }
 
 /**
@@ -119,15 +124,15 @@ export function indiceNodos(n: NodosJson | null): Map<string, string> {
 export function aplicarOficial(rows: Row[], of: Oficial | null): Row[] {
   const tf = indiceTarifas(of?.tar ?? null), nz = indiceNodos(of?.nodos ?? null);
   return rows.map((r) => {
-    const t = tf(r.tar, r.mun, r.per);
-    const partes = t ? costoTarifa(r.tar, t.c, r.kwh, r.kw, r.dias) : null;
+    const t = tf(r.tarCFE, r.mun, r.per);
+    const partes = t ? costoTarifa(r.tarCFE, t.c, r.kwh, r.kw, r.dias) : null;
     const calc = partes ? sumPartes(partes) : NaN;
     let total = 0, src: Row["src"] = "none";
-    if (r.tar === "GDMTH" && partes) { total = calc; src = "cfe"; }
+    if (r.tarCFE === "GDMTH" && partes) { total = calc; src = "cfe"; }
     else if (r.hasImp) { total = r.imp; src = "recibo"; }
     else if (Number.isFinite(r.fact)) { total = r.fact; src = "precio"; }
     else if (partes) { total = calc; src = "cfe"; }
     return { ...r, calc, partes, grupoTar: t?.g.division ?? "", tarAprox: t?.aprox ?? false, total, src,
-      kwhCosto: src === "none" ? 0 : r.kwh, nodo: nz.get(normTxt(r.mun)) ?? "Sin nodo" };
+      kwhCosto: src === "none" ? 0 : r.kwh, nodo: nz(r.nodoP, r.mun) };
   });
 }

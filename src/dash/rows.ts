@@ -13,6 +13,12 @@ export const TAR_DEMANDA = ["GDMTH", "GDMTO"];
  */
 export const LIMITE_DOMESTICA_KW = 25;
 export const esDomestica = (t: string) => /^(1[A-F]?|DAC)$/.test(t);
+/**
+ * Las domésticas se muestran junto con PDBT en un solo grupo en todo el tablero.
+ * Los cálculos (límites, tablas de CFE) siguen usando la tarifa real del recibo (Row.tarCFE).
+ */
+export const GRUPO_BT = "PDBT y domésticas";
+export const esBT = (t: string) => t === "PDBT" || esDomestica(t);
 /** kW máximo permitido de la tarifa, o 0 si no tiene tope (se factura la demanda medida) */
 export const limiteKw = (t: string) => (t === "PDBT" ? PDBT_MAX_KW : esDomestica(t) ? LIMITE_DOMESTICA_KW : 0);
 
@@ -33,7 +39,9 @@ export const sumPartes = (p: Partes) => p.energia + p.capacidad + p.distribucion
  */
 export interface Row {
   rpu: string;          // número de servicio CFE: identifica el recibo
-  i: number; dep: string; mun: string; zona: string; tar: string;
+  i: number; dep: string; mun: string; zona: string;
+  tar: string;          // tarifa para mostrar (las domésticas van dentro de GRUPO_BT)
+  tarCFE: string;       // tarifa real del recibo: la que usan los cálculos
   per: string; yr: number; dias: number;
   kwh: number; kw: number;
   kwOk: boolean;        // demanda utilizable en indicadores (después de la validación)
@@ -47,8 +55,9 @@ export interface Row {
   hasImp: boolean;
   precio: number;       // precio_kwh del historial ($/kWh); en formato 1 es el precio impreso (NaN si no hay)
   fact: number;         // facturado reconstruido: importe, o kWh × precio impreso (NaN si no hay ninguno)
-  formato: number;      // formato del recibo del que salió el registro (1 o 2; 0 si no se cargó)
-  ajustado: boolean;
+  formato: number;      // formato del historial del inmueble (1 o 2; 0 si no hay dato)
+  ajustado: boolean;    // reservado: la vista del historial aún no trae la columna «ajustado»
+  nodoP: string;        // NodoP capturado en el inmueble (columna «nodo»), si existe
   atipico: boolean;     // $/kWh fuera de rango: revisar kWh o importe
   calc: number;         // costo con la tarifa oficial CFE (NaN si no hay tabla para ese municipio/mes)
   partes: Partes | null;
@@ -61,15 +70,8 @@ export interface Row {
   ultimo: boolean;      // periodo más reciente del RPU (el que trae el archivo como mes facturado)
 }
 
-/**
- * RPU del inmueble o del registro de historial. Ajusta aquí si en tu modelo el campo tiene otro nombre:
- * se busca primero por registro (model.hRpu[j]) y después en el inmueble (props[i].rpu).
- */
-const rpuDe = (model: Model, i: number, j: number): string => {
-  const m = model as any, p = m.props[i] ?? {};
-  const v = m.hRpu?.[j] ?? p.rpu ?? p.RPU ?? p.num_servicio ?? p.servicio ?? "";
-  return String(v).trim() || `SIN-RPU-${i}`;
-};
+/** RPU del inmueble (buildModel agrupa el historial por el RPU de cada inmueble) */
+const rpuDe = (model: Model, i: number): string => model.props[i].rpu.trim() || `SIN-RPU-${i}`;
 export const rpuSinDato = (r: Row) => r.rpu.startsWith("SIN-RPU-");
 
 const fin = (x: number) => (Number.isFinite(x) && x > 0 ? x : 0);
@@ -86,23 +88,23 @@ export function buildRows(model: Model): Row[] {
   const porClave = new Map<string, Row>();
   for (let i = 0; i < model.N; i++) {
     const p = model.props[i];
-    const zona = zn.get(p.zone) ?? "Sin zona", tar = normTarifa(p.tarifa), mun = (p.municipio || "Sin dato").trim();
+    const zona = zn.get(p.zone) ?? "Sin zona", tarCFE = normTarifa(p.tarifa), tar = esBT(tarCFE) ? GRUPO_BT : tarCFE, mun = (p.municipio || "Sin dato").trim();
     for (let j = model.histOff[i]; j < model.histOff[i + 1]; j++) {
       const t = model.hKey[j] + 24000, yr = Math.floor(t / 12), m = (t % 12) + 1;
       if (yr < ANIO_DESDE) continue;
       const kwh = fin(model.hKwh[j]), kw = fin(model.hKw[j]), hasKw = Number.isFinite(model.hKw[j]);
       const imp = model.hImp[j], hasImp = Number.isFinite(imp);
-      // Columnas opcionales del historial (ver cargaHistorial en el loader): precio_kwh, formato, ajustado
-      const mm = model as any, pr = Number(mm.hPrecio?.[j]), precio = Number.isFinite(pr) && pr > 0 ? pr : NaN;
+      // precio_kwh del historial (model.hPr); hSrc: 1 = impreso en el recibo, 2 = importe / kWh
+      const pr = model.hPr[j], precio = Number.isFinite(pr) && pr > 0 ? pr : NaN;
       const fact = hasImp ? imp : Number.isFinite(precio) && kwh > 0 ? kwh * precio : NaN;
       const pe = Number.isFinite(fact) && kwh > 0 ? fact / kwh : NaN;
-      const lim = limiteKw(tar), kwOk = kw > 0 && !(lim && kw > lim);
-      const rpu = rpuDe(model, i, j), per = `${yr}-${String(m).padStart(2, "0")}`;
+      const lim = limiteKw(tarCFE), kwOk = kw > 0 && !(lim && kw > lim);
+      const rpu = rpuDe(model, i), per = `${yr}-${String(m).padStart(2, "0")}`;
       const src: Row["src"] = hasImp ? "recibo" : Number.isFinite(fact) ? "precio" : "none";
       const r: Row = {
-        rpu, i, dep: p.dependencia || "Sin dependencia", mun, zona, tar, per, yr,
+        rpu, i, dep: p.dependencia || "Sin dependencia", mun, zona, tar, tarCFE, per, yr,
         dias: new Date(yr, m, 0).getDate(), kwh, kw, kwOk, hasKw, kwOrig: kw, kwFix: "", kwMedia: NaN, kwEst: 0, kwSrc: "ninguna", imp: hasImp ? imp : 0, hasImp,
-        precio, fact, formato: Number(mm.hFmt?.[j]) || 0, ajustado: !!mm.hAjus?.[j], atipico: Number.isFinite(pe) && (pe < PRECIO_MIN || pe > PRECIO_MAX),
+        precio, fact, formato: p.formato ?? 0, ajustado: false, nodoP: p.nodo == null ? "" : String(p.nodo).trim(), atipico: Number.isFinite(pe) && (pe < PRECIO_MIN || pe > PRECIO_MAX),
         calc: NaN, partes: null, grupoTar: "", tarAprox: false,
         total: Number.isFinite(fact) ? fact : 0, src, kwhCosto: src === "none" ? 0 : kwh, nodo: "Sin nodo", ultimo: false
       };
@@ -156,17 +158,17 @@ export function validarDemanda(rows: Row[]) {
     const medKwh = pos.length >= MIN_MUESTRA ? mediana(pos.map((r) => r.kwh)) : NaN;
     const sinRespaldo = (r: Row) => !(medKwh > 0) || r.kwh / medKwh < RESPALDO_CONSUMO * (r.kw / med);
     for (const r of a) {
-      const lim = limiteKw(r.tar), media = r.kwh / (24 * r.dias);
+      const lim = limiteKw(r.tarCFE), media = r.kwh / (24 * r.dias);
       if (med > 0 && r.kw >= FACTOR_ATIPICO * med && sinRespaldo(r)) motivo.set(r, `${(r.kw / med).toLocaleString("es-MX", { maximumFractionDigits: 1 })} veces su mediana (${med} kW)`);
       else if (r.kw === 0 && r.kwh > 0) motivo.set(r, "kW en cero con consumo");
       else if (r.kw > 0 && r.kw < media * 0.999) motivo.set(r, "kW menor que la demanda media del consumo");
-      else if (lim && r.kw > lim) motivo.set(r, `Excede el máximo de ${r.tar} (${lim} kW)`);
+      else if (lim && r.kw > lim) motivo.set(r, `Excede el máximo de ${r.tarCFE} (${lim} kW)`);
     }
     if (!motivo.size) continue;
     const validos = a.filter((r) => r.kw > 0 && !motivo.has(r));
     const media = validos.length ? validos.reduce((s, r) => s + r.kw, 0) / validos.length : NaN;
     for (const [r, m] of motivo) {
-      const lim = limiteKw(r.tar), nuevo = Math.max(media, r.kwh / (24 * r.dias));
+      const lim = limiteKw(r.tarCFE), nuevo = Math.max(media, r.kwh / (24 * r.dias));
       if (Number.isFinite(media) && !(lim && nuevo > lim)) {
         r.kw = Math.round(nuevo * 10) / 10; r.kwOk = true; r.kwMedia = media;
         r.kwFix = nuevo > media ? m + " · media ajustada al mínimo del consumo" : m;
@@ -205,7 +207,7 @@ export function referenciaFc(rows: Row[]): RefFc {
   return { fc: cuantil(f, 0.5), fcBajo: cuantil(f, 0.25), fcAlto: cuantil(f, 0.75), n: base.length, kwhTope: tope, origen };
 }
 /** kW estimado de un mes: kWh / (24 · días · FC), sin pasar del máximo de su tarifa (PDBT 25 kW) */
-export const kwPorConsumo = (r: Row, fc: number) => { const e = r.kwh > 0 ? r.kwh / (24 * r.dias * fc) : 0, lim = limiteKw(r.tar); return lim ? Math.min(e, lim) : e; };
+export const kwPorConsumo = (r: Row, fc: number) => { const e = r.kwh > 0 ? r.kwh / (24 * r.dias * fc) : 0, lim = limiteKw(r.tarCFE); return lim ? Math.min(e, lim) : e; };
 export function estimarDemanda(rows: Row[], ref: RefFc) {
   for (const r of rows) {
     if (r.kwOk && r.kw > 0) { r.kwEst = r.kw; r.kwSrc = "medida"; }
