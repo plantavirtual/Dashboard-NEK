@@ -1,7 +1,14 @@
 import type { Model } from "../data/types";
 
-/** Primer año que se muestra: los recibos anteriores se descartan */
-export const ANIO_DESDE = 2025;
+/**
+ * Periodo que analiza el tablero (AAAA-MM, ambos incluidos). Los meses fuera de este rango se descartan
+ * antes de cualquier cálculo: validación de demanda, estimaciones, costos, gráficas y recuadros.
+ * Para cambiar el periodo, edita estas dos líneas.
+ */
+export const MES_DESDE = "2025-01";
+export const MES_HASTA = "2026-02";
+/** Primer año del periodo (se conserva por compatibilidad) */
+export const ANIO_DESDE = Number(MES_DESDE.slice(0, 4));
 /** PDBT (Pequeña Demanda en Baja Tensión) aplica hasta 25 kW-mes: arriba de eso el dato no es válido para la tarifa */
 export const PDBT_MAX_KW = 25;
 /** Tarifas que facturan demanda máxima medida (distribución y capacidad en $/kW) */
@@ -91,7 +98,8 @@ export function buildRows(model: Model): Row[] {
     const zona = zn.get(p.zone) ?? "Sin zona", tarCFE = normTarifa(p.tarifa), tar = esBT(tarCFE) ? GRUPO_BT : tarCFE, mun = (p.municipio || "Sin dato").trim();
     for (let j = model.histOff[i]; j < model.histOff[i + 1]; j++) {
       const t = model.hKey[j] + 24000, yr = Math.floor(t / 12), m = (t % 12) + 1;
-      if (yr < ANIO_DESDE) continue;
+      const clave = `${yr}-${String(m).padStart(2, "0")}`;
+      if (clave < MES_DESDE || clave > MES_HASTA) continue;
       const kwh = fin(model.hKwh[j]), kw = fin(model.hKw[j]), hasKw = Number.isFinite(model.hKw[j]);
       const imp = model.hImp[j], hasImp = Number.isFinite(imp);
       // precio_kwh del historial (model.hPr); hSrc: 1 = impreso en el recibo, 2 = importe / kWh

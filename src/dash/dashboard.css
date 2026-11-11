@@ -49,7 +49,7 @@
 .dash .d-tab.on{color:var(--tx);border-bottom-color:var(--c1);font-weight:600}
 .dash .d-tab:focus-visible{outline:2px solid var(--c1);outline-offset:-2px}
 .dash table{border-collapse:collapse;width:100%;min-width:640px;font-variant-numeric:tabular-nums}
-.dash th,.dash td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}
+.dash th,.dash td{font-size:13px;text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}
 .dash th{font-weight:600;color:var(--mut)}
 .dash td.n,.dash th.n{text-align:right}
 .dash tr.d-click{cursor:pointer}
