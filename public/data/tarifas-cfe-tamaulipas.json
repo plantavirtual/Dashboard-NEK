@@ -1,7 +1,1502 @@
 {
- "generado": "2026-11-04T17:19:37.267Z",
+ "generado": "2026-11-10T17:59:09.868Z",
  "estado": "Tamaulipas",
- "fuente": "CFE · Conoce tu tarifa (app.cfe.mx/Aplicaciones/CCFE/Tarifas)",
- "desde": 2025,
- "tarifas": {}
+ "fuente": "Diario Oficial de la Federación",
+ "tarifas": {
+  "GDMTO": {
+   "url": "DOF · Tarifas finales del Suministro Básico",
+   "grupos": [
+    {
+     "id": "GDMTO-GOLFO_NORTE",
+     "division": "GOLFO NORTE",
+     "municipios": [
+      "Camargo",
+      "Guerrero",
+      "Matamoros",
+      "Miguel Alemán",
+      "Nuevo Laredo",
+      "Reynosa",
+      "Río Bravo",
+      "San Carlos",
+      "Valle Hermoso"
+     ],
+     "meses": {
+      "2025-01": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.152,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 366.47,
+        "u": "$/kW"
+       }
+      },
+      "2025-02": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.154,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 367.06,
+        "u": "$/kW"
+       }
+      },
+      "2025-03": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.155,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 367.21,
+        "u": "$/kW"
+       }
+      },
+      "2025-06": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.182,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 375.93,
+        "u": "$/kW"
+       }
+      },
+      "2025-07": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.2,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 381.57,
+        "u": "$/kW"
+       }
+      },
+      "2025-10": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.19,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 378.61,
+        "u": "$/kW"
+       }
+      },
+      "2025-12": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.097,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 348.88,
+        "u": "$/kW"
+       }
+      }
+     }
+    },
+    {
+     "id": "GDMTO-GOLFO_CENTRO",
+     "division": "GOLFO CENTRO",
+     "municipios": [
+      "Altamira",
+      "Ciudad Madero",
+      "El Mante",
+      "González",
+      "Güémez",
+      "Jiménez",
+      "Llera",
+      "Padilla",
+      "San Fernando",
+      "Tampico",
+      "Victoria"
+     ],
+     "meses": {
+      "2025-01": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.248,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 344.99,
+        "u": "$/kW"
+       }
+      },
+      "2025-02": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.25,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 345.54,
+        "u": "$/kW"
+       }
+      },
+      "2025-03": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.251,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 345.68,
+        "u": "$/kW"
+       }
+      },
+      "2025-06": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.281,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 353.89,
+        "u": "$/kW"
+       }
+      },
+      "2025-07": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.3,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 359.2,
+        "u": "$/kW"
+       }
+      },
+      "2025-10": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.29,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 356.41,
+        "u": "$/kW"
+       }
+      },
+      "2025-12": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.188,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 328.43,
+        "u": "$/kW"
+       }
+      }
+     }
+    }
+   ]
+  },
+  "GDMTH": {
+   "url": "DOF · Tarifas finales del Suministro Básico",
+   "grupos": [
+    {
+     "id": "GDMTH-GOLFO_NORTE",
+     "division": "GOLFO NORTE",
+     "municipios": [
+      "Camargo",
+      "Guerrero",
+      "Matamoros",
+      "Miguel Alemán",
+      "Nuevo Laredo",
+      "Reynosa",
+      "Río Bravo",
+      "San Carlos",
+      "Valle Hermoso"
+     ],
+     "meses": {
+      "2025-01": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.8893,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.496,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.6413,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 431.76,
+        "u": "$/kW"
+       }
+      },
+      "2025-02": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.8907,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.4983,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.6439,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 432.44,
+        "u": "$/kW"
+       }
+      },
+      "2025-03": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.8911,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.499,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.6446,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 432.62,
+        "u": "$/kW"
+       }
+      },
+      "2025-06": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.9122,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.5346,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.6837,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 442.9,
+        "u": "$/kW"
+       }
+      },
+      "2025-07": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.9259,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.5576,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.7089,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 449.54,
+        "u": "$/kW"
+       }
+      },
+      "2025-10": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.9187,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.5455,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.6957,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 446.06,
+        "u": "$/kW"
+       }
+      },
+      "2025-12": {
+       "suministro": {
+        "v": 551.77,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.8466,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.4241,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.5625,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 60.23,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 411.03,
+        "u": "$/kW"
+       }
+      }
+     }
+    },
+    {
+     "id": "GDMTH-GOLFO_CENTRO",
+     "division": "GOLFO CENTRO",
+     "municipios": [
+      "Altamira",
+      "Ciudad Madero",
+      "El Mante",
+      "González",
+      "Güémez",
+      "Jiménez",
+      "Llera",
+      "Padilla",
+      "San Fernando",
+      "Tampico",
+      "Victoria"
+     ],
+     "meses": {
+      "2025-01": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.8668,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.6104,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.8994,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 421.46,
+        "u": "$/kW"
+       }
+      },
+      "2025-02": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.8682,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.613,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.9024,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 422.13,
+        "u": "$/kW"
+       }
+      },
+      "2025-03": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.8686,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.6136,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.9032,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 422.31,
+        "u": "$/kW"
+       }
+      },
+      "2025-06": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.8892,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.652,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.9484,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 432.34,
+        "u": "$/kW"
+       }
+      },
+      "2025-07": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.9025,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.6767,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.9776,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 438.82,
+        "u": "$/kW"
+       }
+      },
+      "2025-10": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.8955,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.6637,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.9623,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 435.42,
+        "u": "$/kW"
+       }
+      },
+      "2025-12": {
+       "suministro": {
+        "v": 343.99,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia_base": {
+        "v": 0.8252,
+        "u": "$/kWh"
+       },
+       "energia_intermedia": {
+        "v": 1.5331,
+        "u": "$/kWh"
+       },
+       "energia_punta": {
+        "v": 1.8082,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 130.04,
+        "u": "$/kW"
+       },
+       "capacidad": {
+        "v": 401.23,
+        "u": "$/kW"
+       }
+      }
+     }
+    }
+   ]
+  },
+  "PDBT": {
+   "url": "DOF · Tarifas finales del Suministro Básico",
+   "grupos": [
+    {
+     "id": "PDBT-GOLFO_NORTE",
+     "division": "GOLFO NORTE",
+     "municipios": [
+      "Camargo",
+      "Guerrero",
+      "Matamoros",
+      "Miguel Alemán",
+      "Nuevo Laredo",
+      "Reynosa",
+      "Río Bravo",
+      "San Carlos",
+      "Valle Hermoso"
+     ],
+     "meses": {
+      "2025-01": {
+       "suministro": {
+        "v": 55.18,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 0.8474,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.531,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.176,
+        "u": "$/kWh"
+       }
+      },
+      "2025-02": {
+       "suministro": {
+        "v": 55.18,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 0.8474,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.533,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.178,
+        "u": "$/kWh"
+       }
+      },
+      "2025-03": {
+       "suministro": {
+        "v": 55.18,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 0.8474,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.534,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.179,
+        "u": "$/kWh"
+       }
+      },
+      "2025-06": {
+       "suministro": {
+        "v": 55.18,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 0.8474,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.57,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.207,
+        "u": "$/kWh"
+       }
+      },
+      "2025-07": {
+       "suministro": {
+        "v": 55.18,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 0.8474,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.594,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.225,
+        "u": "$/kWh"
+       }
+      },
+      "2025-10": {
+       "suministro": {
+        "v": 55.18,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 0.8474,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.581,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.215,
+        "u": "$/kWh"
+       }
+      },
+      "2025-12": {
+       "suministro": {
+        "v": 55.18,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 0.8474,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.457,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.12,
+        "u": "$/kWh"
+       }
+      }
+     }
+    },
+    {
+     "id": "PDBT-GOLFO_CENTRO",
+     "division": "GOLFO CENTRO",
+     "municipios": [
+      "Altamira",
+      "Ciudad Madero",
+      "El Mante",
+      "González",
+      "Güémez",
+      "Jiménez",
+      "Llera",
+      "Padilla",
+      "San Fernando",
+      "Tampico",
+      "Victoria"
+     ],
+     "meses": {
+      "2025-01": {
+       "suministro": {
+        "v": 34.4,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 1.1684,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.736,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.09,
+        "u": "$/kWh"
+       }
+      },
+      "2025-02": {
+       "suministro": {
+        "v": 34.4,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 1.1684,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.738,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.092,
+        "u": "$/kWh"
+       }
+      },
+      "2025-03": {
+       "suministro": {
+        "v": 34.4,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 1.1684,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.739,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.092,
+        "u": "$/kWh"
+       }
+      },
+      "2025-06": {
+       "suministro": {
+        "v": 34.4,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 1.1684,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.78,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.118,
+        "u": "$/kWh"
+       }
+      },
+      "2025-07": {
+       "suministro": {
+        "v": 34.4,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 1.1684,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0065,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.807,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.135,
+        "u": "$/kWh"
+       }
+      },
+      "2025-10": {
+       "suministro": {
+        "v": 34.4,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 1.1684,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.793,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.126,
+        "u": "$/kWh"
+       }
+      },
+      "2025-12": {
+       "suministro": {
+        "v": 34.4,
+        "u": "$/mes"
+       },
+       "transmision": {
+        "v": 0.1809,
+        "u": "$/kWh"
+       },
+       "distribucion": {
+        "v": 1.1684,
+        "u": "$/kWh"
+       },
+       "cenace": {
+        "v": 0.0106,
+        "u": "$/kWh"
+       },
+       "scnmem": {
+        "v": 0.0062,
+        "u": "$/kWh"
+       },
+       "energia": {
+        "v": 1.652,
+        "u": "$/kWh"
+       },
+       "capacidad": {
+        "v": 1.038,
+        "u": "$/kWh"
+       }
+      }
+     }
+    }
+   ]
+  }
+ }
 }
