@@ -124,15 +124,21 @@ export function indiceNodos(n: NodosJson | null) {
 export function aplicarOficial(rows: Row[], of: Oficial | null): Row[] {
   const tf = indiceTarifas(of?.tar ?? null), nz = indiceNodos(of?.nodos ?? null);
   return rows.map((r) => {
-    const t = tf(r.tarCFE, r.mun, r.per);
+    const sinActividad = !r.hasImp && r.kwh === 0 && r.kw === 0;
+    const t = sinActividad ? null : tf(r.tarCFE, r.mun, r.per);
     const partes = t ? costoTarifa(r.tarCFE, t.c, r.kwh, r.kw, r.dias) : null;
     const calc = partes ? sumPartes(partes) : NaN;
+
     let total = 0, src: Row["src"] = "none";
-    if (r.tarCFE === "GDMTH" && partes) { total = calc; src = "cfe"; }
+    if (sinActividad) { total = 0; src = Number.isFinite(r.fact) ? "precio" : "none"; }
+    else if (r.tarCFE === "GDMTH" && partes) { total = calc; src = "cfe"; }
     else if (r.hasImp) { total = r.imp; src = "recibo"; }
     else if (Number.isFinite(r.fact)) { total = r.fact; src = "precio"; }
     else if (partes) { total = calc; src = "cfe"; }
-    return { ...r, calc, partes, grupoTar: t?.g.division ?? "", tarAprox: t?.aprox ?? false, total, src,
-      kwhCosto: src === "none" ? 0 : r.kwh, nodo: nz(r.nodoP, r.mun) };
+
+    return {
+      ...r, calc, partes, grupoTar: t?.g.division ?? "", tarAprox: t?.aprox ?? false, total, src,
+      kwhCosto: src === "none" ? 0 : r.kwh, nodo: nz(r.nodoP, r.mun)
+    };
   });
 }

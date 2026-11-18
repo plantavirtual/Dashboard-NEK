@@ -1,49 +1,23 @@
 import type { Model } from "../data/types";
 
-/**
- * Periodo que analiza el tablero (AAAA-MM, ambos incluidos). Los meses fuera de este rango se descartan
- * antes de cualquier cálculo: validación de demanda, estimaciones, costos, gráficas y recuadros.
- * Para cambiar el periodo, edita estas dos líneas.
- */
 export const MES_DESDE = "2025-01";
-export const MES_HASTA = "2026-02";
-/** Primer año del periodo (se conserva por compatibilidad) */
+export const MES_HASTA = "2025-12";
 export const ANIO_DESDE = Number(MES_DESDE.slice(0, 4));
-/** PDBT (Pequeña Demanda en Baja Tensión) aplica hasta 25 kW-mes: arriba de eso el dato no es válido para la tarifa */
 export const PDBT_MAX_KW = 25;
-/** Tarifas que facturan demanda máxima medida (distribución y capacidad en $/kW) */
 export const TAR_DEMANDA = ["GDMTH", "GDMTO"];
-/**
- * Demanda máxima permitida para tarifas que no facturan demanda.
- * PDBT: hasta 25 kW-mes (CFE). Domésticas (1, 1A…1F, DAC): la tarifa no fija un tope en kW;
- * se usa el mismo límite de servicio en baja tensión como supuesto. Cámbialo aquí si usas otro.
- */
 export const LIMITE_DOMESTICA_KW = 25;
 export const esDomestica = (t: string) => /^(1[A-F]?|DAC)$/.test(t);
-/**
- * Las domésticas se muestran junto con PDBT en un solo grupo en todo el tablero.
- * Los cálculos (límites, tablas de CFE) siguen usando la tarifa real del recibo (Row.tarCFE).
- */
 export const GRUPO_BT = "PDBT y domésticas";
 export const esBT = (t: string) => t === "PDBT" || esDomestica(t);
-/** kW máximo permitido de la tarifa, o 0 si no tiene tope (se factura la demanda medida) */
 export const limiteKw = (t: string) => (t === "PDBT" ? PDBT_MAX_KW : esDomestica(t) ? LIMITE_DOMESTICA_KW : 0);
-
-/** Mayúsculas, sin acentos ni espacios repetidos: para cruzar municipios de Supabase, CFE y CENACE */
 export const normTxt = (s: string) =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
-/** «gdmth », «GDMT-H» y «GDMTH» son la misma tarifa: antes se separaban en grupos distintos */
 export const normTarifa = (t?: string | null) => normTxt(t ?? "").replace(/^TARIFA\s*/, "").replace(/[\s\-_.]/g, "") || "Sin tarifa";
 
-/** Desglose del costo calculado con la tarifa oficial de CFE (pesos, sin redondear) */
 export interface Partes { energia: number; capacidad: number; distribucion: number; transmision: number; otros: number; iva: number }
 export const sumPartes = (p: Partes) => p.energia + p.capacidad + p.distribucion + p.transmision + p.otros + p.iva;
 
-/**
- * Un periodo del historial de un recibo.
- * El recibo es el RPU (un archivo por RPU único); cada fila es un mes de su historial,
- * por eso los conteos de «recibos» se hacen con RPU distintos y no con filas.
- */
+
 export interface Row {
   rpu: string;          // número de servicio CFE: identifica el recibo
   i: number; dep: string; mun: string; zona: string;
@@ -104,7 +78,7 @@ export function buildRows(model: Model): Row[] {
       const imp = model.hImp[j], hasImp = Number.isFinite(imp);
       // precio_kwh del historial (model.hPr); hSrc: 1 = impreso en el recibo, 2 = importe / kWh
       const pr = model.hPr[j], precio = Number.isFinite(pr) && pr > 0 ? pr : NaN;
-      const fact = hasImp ? imp : Number.isFinite(precio) && kwh > 0 ? kwh * precio : NaN;
+      const fact = hasImp ? imp : Number.isFinite(precio) && (kwh > 0 || precio === 0) ? kwh * precio : NaN;
       const pe = Number.isFinite(fact) && kwh > 0 ? fact / kwh : NaN;
       const lim = limiteKw(tarCFE), kwOk = kw > 0 && !(lim && kw > lim);
       const rpu = rpuDe(model, i), per = `${yr}-${String(m).padStart(2, "0")}`;
