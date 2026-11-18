@@ -1,7 +1,7 @@
 import type { Model } from "../data/types";
 
 export const MES_DESDE = "2025-01";
-export const MES_HASTA = "2025-12";
+export const MES_HASTA = "2026-02";
 export const ANIO_DESDE = Number(MES_DESDE.slice(0, 4));
 export const PDBT_MAX_KW = 25;
 export const TAR_DEMANDA = ["GDMTH", "GDMTO"];
