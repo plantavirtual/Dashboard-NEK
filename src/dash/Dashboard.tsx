@@ -923,17 +923,6 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
 
         {tab === "pg" && (
           <div className="d-grid">
-            {v.anual.length > 0 && <div className="d-card w12">
-              <div className="d-hrow"><h2>Resumen anual · {hayF ? "con los filtros activos" : "toda la base"}</h2></div>
-              <div className="d-tw full"><table>
-                <thead><tr><th>Año</th><th className="n">Meses con datos</th><th className="n">Consumo anual (MWh)</th><th className="n">Gasto anual</th><th className="n">Demanda anual</th><th className="n">Demanda mensual promedio</th></tr></thead>
-                <tbody>{v.anual.map((a) => (
-                  <tr key={a.y}><td>{a.y}{a.meses < 12 ? " (parcial)" : ""}</td><td className="n">{a.meses}</td><td className="n">{N(a.kwh / 1000)}</td><td className="n">{M(a.gasto)}</td><td className="n">{KW(a.dem)}</td><td className="n">{KW(a.prom)}</td></tr>
-                ))}
-                {v.anual.length > 1 && <tr><td><b>Todo el periodo</b></td><td className="n"><b>{persF.length}</b></td><td className="n"><b>{N(K / 1000)}</b></td><td className="n"><b>{M(T)}</b></td><td className="n"><b>{KW(sumRpuMes(R, (r) => r.kwEst))}</b></td><td className="n">—</td></tr>}</tbody>
-              </table></div>
-              <p className="d-mut">El consumo y el gasto son la suma de los meses de cada año. La demanda anual es la suma de la demanda máxima que alcanzó cada recibo en el año (medida y validada, o estimada con el consumo); la mensual promedio es el promedio de la demanda general de cada mes. Es una suma no coincidente, no una carga simultánea. Los años con menos de 12 meses con datos son parciales y no se pueden comparar de frente con un año completo. {hayF ? "Las cifras corresponden solo a los recibos que pasan los filtros; usa «Limpiar filtros» para ver el total anual de toda la base." : "Sin filtros: son los totales de toda la base."}</p>
-            </div>}
             {v.charts.cG && <div className={"d-card " + (v.charts.cP ? "w8" : "w12")}><Cab t={`Demanda general por ${v.dims.cG}`} info={INF.cG} /><Nota nat="tarifa" act={v.dims.cG} /><Grafica config={v.charts.cG} theme={theme} tall modos={["pct", "sep"]} /></div>}
             {v.charts.cP && <div className={"d-card " + (v.charts.cG ? "w4" : "w12")}><Cab t={`Recibos por ${v.recDim}`} info={INF.cP} /><Nota nat="tarifa" act={v.dims.cP} /><Grafica config={v.charts.cP} theme={theme} alto={v.recAlto} modos={["log"]} /></div>}
             <div className={"d-card " + (v.charts.c2 ? "w8" : "w12")}><Cab t="Costo mensual y consumo" info={INF.c1} /><Grafica config={v.charts.c1} theme={theme} modos={["clip"]} /></div>
