@@ -44,7 +44,7 @@ export function Overlay({ map, fitZoom, onEngine }: { map: MLMap; fitZoom: numbe
   const engineRef = useRef<OverlayEngine | null>(null);
 
   // Motor: se crea una vez por mapa
-  useEffect(() => {
+  useLayoutEffect(() => {
     const e = new OverlayEngine(map, leadersRef.current!, labelRefs.current as HTMLElement[], fitZoom,
       (k) => useStore.getState().setHoverKey(k), () => useStore.getState().model);
     engineRef.current = e;
