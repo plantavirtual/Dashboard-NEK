@@ -16,7 +16,7 @@ export type WorkerOut =
   | { type: "auth" }
   | { type: "toast"; text: string; ms: number };
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 3;   // 2: columnas de precio sin IVA, lectura estimada, ubicación confiable y zona · 3: columnas del tablero (tarifa del mes, consumo atípico)
 let token = "";
 let uid = "";
 class AuthError extends Error {}
@@ -25,8 +25,10 @@ const EMPTY: RawData = { inmuebles: [], historial: [], zonas: DEFAULT_ZONAS, zon
 function postModel(raw: RawData, source: "cache" | "red" | "archivo" | "vacio") {
   const model = buildModel(raw);
   const t: Transferable[] = [
-    model.kwh.buffer, model.kw.buffer, model.imp.buffer, model.pr.buffer, model.depIdx.buffer, model.finCat.buffer,
+    model.kwh.buffer, model.kw.buffer, model.imp.buffer, model.pr.buffer, model.sub.buffer, model.est.buffer, model.depIdx.buffer, model.finCat.buffer,
     model.histOff.buffer, model.hKey.buffer, model.hKwh.buffer, model.hKw.buffer, model.hImp.buffer, model.hPr.buffer, model.hSrc.buffer,
+    model.hPrS.buffer, model.hSub.buffer, model.hOri.buffer, model.hEst.buffer, model.hDud.buffer,
+    model.hFmt.buffer, model.hAjus.buffer, model.hCAt.buffer,
     ...Object.values(model.catIdx).map((a) => a.buffer),
     ...model.zones.map((z) => z.members.buffer), ...model.subs.map((s) => s.members.buffer)
   ];
@@ -61,11 +63,26 @@ async function sbFetchAll(view: string, select: string, order?: string): Promise
   const rest = await pool(starts.map((s) => () => page(s, false).then((p) => p.rows)), CONFIG.concurrency);
   return first.rows.concat(...rest);
 }
+/**
+ * Historial. Las columnas del mapa siempre se piden; tarifa, formato, ajustado y consumo_atipico las usa solo el tablero
+ * de recibos y existen en historial_calculo. Si la vista configurada no las tiene (respuesta 400), se vuelve a pedir
+ * sin ellas: el mapa funciona igual y el tablero usa la tarifa y el formato del inmueble.
+ */
+const COLS_MAPA = "rpu,periodo_inicio,kwh,kw,importe,precio_kwh,precio_fuente,precio_sin_iva,subtotal,precio_origen,lectura_estimada,demanda_dudosa";
+const COLS_TABLERO = "tarifa,formato,ajustado,consumo_atipico";
+async function cargarHistorial(vista: string) {
+  try { return await sbFetchAll(vista, COLS_MAPA + "," + COLS_TABLERO, "rpu,periodo_inicio"); }
+  catch (e) {
+    if (e instanceof AuthError || !/: 400 /.test((e as Error).message)) throw e;
+    console.info(`${vista} no tiene ${COLS_TABLERO}; el tablero usará la tarifa del inmueble.`);
+    return sbFetchAll(vista, COLS_MAPA, "rpu,periodo_inicio");
+  }
+}
 async function loadSupabase(): Promise<RawData> {
   const v = CONFIG.views;
   const [inmuebles, historial] = await Promise.all([
     sbFetchAll(v.inmuebles, "*", "id"),
-    sbFetchAll(v.historial, "rpu,periodo_inicio,kwh,kw,importe,precio_kwh,precio_fuente", "rpu,periodo_inicio")
+    cargarHistorial(v.historial)
   ]);
   let zonas = DEFAULT_ZONAS, zonaMunicipio = DEFAULT_ZONA_MUNICIPIO;
   if (v.zonas && v.zonaMunicipio) {

@@ -1,4 +1,4 @@
-import { CAT_PALETTE, CONFIG, FEATURE_COLORS, TARIFA_COLORS, UBIC_COLORS } from "../lib/constants";
+import { CAT_PALETTE, CONFIG, FEATURE_COLORS, SIN_PRECIO, TARIFA_COLORS, UBIC_COLORS } from "../lib/constants";
 import { catLabel } from "../lib/categories";
 import { makeScale, classOf } from "../lib/scales";
 import { mulberry32, normName } from "../lib/format";
@@ -9,6 +9,9 @@ import type {
 const pad2 = (m: number) => String(m).padStart(2, "0");
 const EPOCH = 24000; // año 2000 × 12: las claves de mes caben en un Uint16
 const num = (v: unknown) => (v == null || v === "" ? NaN : Number(v));
+const flag = (v: unknown) => v === true || v === "true" || v === "t" || v === 1;
+/** precio_origen -> 0 (con precio, o sin dato) o 1..n según SIN_PRECIO */
+const oriCode = (v: unknown) => SIN_PRECIO.indexOf(v as (typeof SIN_PRECIO)[number]) + 1;
 
 function monthList(inicio: string, fin: string): MonthInfo[] {
   const out: MonthInfo[] = [];
@@ -41,6 +44,7 @@ export function buildModel(data: RawData): Model {
   // ---- Inmuebles
   const kwh = new Float64Array(N * M).fill(NaN), kw = new Float64Array(N * M).fill(NaN);
   const imp = new Float64Array(N * M).fill(NaN), pr = new Float64Array(N * M).fill(NaN);
+  const sub = new Float64Array(N * M).fill(NaN), est = new Uint8Array(N * M);
   const byRpu = new Map<string, number>();
   const props: Prop[] = data.inmuebles.map((r, i) => {
     const lat = Number(r.latitud), lon = Number(r.longitud);
@@ -48,10 +52,12 @@ export function buildModel(data: RawData): Model {
       i, id: r.id, nombre: r.nombre || "Sin nombre", direccion: r.direccion || "", rpu: r.rpu == null ? "" : String(r.rpu),
       dependencia: r.dependencia || "Sin dependencia", tarifa: r.tarifa || "", municipio: r.municipio || "",
       feature: r.interconexion || null, bidir: r.medidor_bidireccional === true, nodo: r.nodo, valid: r.ubicacion_validada ?? null,
+      confiable: r.ubicacion_confiable ?? null, division: r.division || "", zonaDist: r.zona_distribucion || "",
+      lectEst: flag(r.recibo_lectura_estimada), kwhEst: num(r.recibo_kwh_estimado),
       demandaAplica: r.demanda_aplica ?? null, formato: r.historial_formato == null ? null : +r.historial_formato,
       region: r.region_nombre || "", regionTipo: r.region_tipo || "Colonia", endRaw: r[CONFIG.endColumn] ?? null, endKey: null,
       lat, lon, hasXY: isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0,
-      zone: -1, sub: -1, hasHist: false, prSrc: null
+      zone: -1, sub: -1, hasHist: false
     };
     if (p.rpu) byRpu.set(p.rpu, i);
     return p;
@@ -69,13 +75,19 @@ export function buildModel(data: RawData): Model {
     const mi = mIndex.get(key);
     if (mi == null) continue;
     const o = i * M + mi;
-    kwh[o] = num(r.kwh); kw[o] = num(r.kw); imp[o] = num(r.importe); pr[o] = num(r.precio_kwh);
+    // El mapa compara con el precio sin IVA; la demanda dudosa no se colorea ni se promedia
+    kwh[o] = num(r.kwh); kw[o] = flag(r.demanda_dudosa) ? NaN : num(r.kw); imp[o] = num(r.importe);
+    pr[o] = num(r.precio_sin_iva); sub[o] = num(r.subtotal); est[o] = flag(r.lectura_estimada) ? 1 : 0;
   }
   let total = 0;
   for (const b of bucket) total += b.length;
   const histOff = new Uint32Array(N + 1), hKey = new Uint16Array(total);
   const hKwh = new Float64Array(total), hKw = new Float64Array(total), hImp = new Float64Array(total), hPr = new Float64Array(total);
   const hSrc = new Uint8Array(total);
+  const hPrS = new Float64Array(total), hSub = new Float64Array(total);
+  const hOri = new Uint8Array(total), hEst = new Uint8Array(total), hDud = new Uint8Array(total);
+  // Solo para el tablero de recibos: tarifa, formato, ajuste y consumo atípico de cada mes (historial_calculo)
+  const hTar = new Array<string>(total), hFmt = new Uint8Array(total), hAjus = new Uint8Array(total), hCAt = new Uint8Array(total);
   const ym = (r: Record<string, any>) => {
     const k = String(r.periodo_inicio).slice(0, 7);
     return +k.slice(0, 4) * 12 + (+k.slice(5, 7) - 1) - EPOCH;
@@ -84,15 +96,16 @@ export function buildModel(data: RawData): Model {
   for (let i = 0; i < N; i++) {
     histOff[i] = w;
     const rows = bucket[i].map((j) => data.historial[j]).sort((a, b) => ym(a) - ym(b));
-    let n1 = 0, n2 = 0;
     for (const r of rows) {
       hKey[w] = ym(r); hKwh[w] = num(r.kwh); hKw[w] = num(r.kw); hImp[w] = num(r.importe); hPr[w] = num(r.precio_kwh);
-      const s = r.precio_fuente === "impreso" ? 1 : r.precio_fuente === "importe" ? 2 : 0;
-      hSrc[w] = s; if (s === 1) n1++; else if (s === 2) n2++;
+      hSrc[w] = r.precio_fuente === "impreso" ? 1 : r.precio_fuente === "importe" ? 2 : 0;
+      hPrS[w] = num(r.precio_sin_iva); hSub[w] = num(r.subtotal); hOri[w] = oriCode(r.precio_origen);
+      hEst[w] = flag(r.lectura_estimada) ? 1 : 0; hDud[w] = flag(r.demanda_dudosa) ? 1 : 0;
+      hTar[w] = r.tarifa == null ? "" : String(r.tarifa).trim(); hFmt[w] = Number(r.formato) || 0;
+      hAjus[w] = flag(r.ajustado) ? 1 : 0; hCAt[w] = flag(r.consumo_atipico) ? 1 : 0;
       w++;
     }
     const p = props[i];
-    p.prSrc = n1 || n2 ? (n1 >= n2 ? "impreso" : "importe") : null;
     let has = false;
     for (let k = 0; k < M && !has; k++) has = isFinite(kwh[i * M + k]) || isFinite(imp[i * M + k]);
     p.hasHist = has;
@@ -148,7 +161,7 @@ export function buildModel(data: RawData): Model {
   cats.dependencia.colors = cats.dependencia.labels.map((_, i) => CAT_PALETTE[i % CAT_PALETTE.length]);
   cats.tarifa = { labels: byCount("tarifa"), colors: [] };
   cats.tarifa.colors = cats.tarifa.labels.map((k, i) => TARIFA_COLORS[k] || CAT_PALETTE[(i + 4) % CAT_PALETTE.length]);
-  cats.ubicacion = { labels: ["Validada", "Sin validar", "Sin dato"], colors: ["Validada", "Sin validar", "Sin dato"].map((k) => UBIC_COLORS[k]) };
+  cats.ubicacion = { labels: Object.keys(UBIC_COLORS), colors: Object.values(UBIC_COLORS) };
   cats.interconexion = { labels: Object.keys(FEATURE_COLORS), colors: Object.values(FEATURE_COLORS) };
   for (const mode of modes) {
     const pos = new Map(cats[mode].labels.map((l, i) => [l, i]));
@@ -166,10 +179,12 @@ export function buildModel(data: RawData): Model {
   for (const measure of ["consumo", "precio", "demanda"] as Measure[]) {
     const src = mats[measure];
     let n = 0;
-    for (let i = 0; i < src.length; i++) if (src[i] > 0 && isFinite(src[i])) n++;
+    // En consumo no cuentan los meses de lectura estimada: su kWh no es una lectura
+    const vale = (i: number) => src[i] > 0 && isFinite(src[i]) && !(measure === "consumo" && est[i]);
+    for (let i = 0; i < src.length; i++) if (vale(i)) n++;
     const vals = new Float64Array(n);
     let j = 0;
-    for (let i = 0; i < src.length; i++) if (src[i] > 0 && isFinite(src[i])) vals[j++] = src[i];
+    for (let i = 0; i < src.length; i++) if (vale(i)) vals[j++] = src[i];
     vals.sort();   // TypedArray.sort ordena numéricamente
     scales[measure] = makeScale(vals);
   }
@@ -191,7 +206,8 @@ export function buildModel(data: RawData): Model {
       ct: catIdx.tarifa[p.i], ci: catIdx.interconexion[p.i], cu: catIdx.ubicacion[p.i]
     };
     for (let k = 0; k < M; k++) {
-      o["k" + k] = classOf(kwh[p.i * M + k], scales.consumo.breaks);
+      // -2 = lectura estimada: el kWh del mes no es una lectura del medidor (no es consumo cero)
+      o["k" + k] = est[p.i * M + k] ? -2 : classOf(kwh[p.i * M + k], scales.consumo.breaks);
       o["p" + k] = classOf(pr[p.i * M + k], scales.precio.breaks);
       o["w" + k] = classOf(kw[p.i * M + k], scales.demanda.breaks);
     }
@@ -200,8 +216,8 @@ export function buildModel(data: RawData): Model {
   const pointsJson = `{"type":"FeatureCollection","features":[${feats.join(",")}]}`;
 
   return {
-    N, M, months, props, zones, subs, deps, hasEndColumn, kwh, kw, imp, pr, catIdx, cats, depIdx, finCat, scales, month0,
-    histOff, hKey, hKwh, hKw, hImp, hPr, hSrc, pointsJson
+    N, M, months, props, zones, subs, deps, hasEndColumn, kwh, kw, imp, pr, sub, est, catIdx, cats, depIdx, finCat, scales, month0,
+    histOff, hKey, hKwh, hKw, hImp, hPr, hSrc, hPrS, hSub, hOri, hEst, hDud, hTar, hFmt, hAjus, hCAt, pointsJson
   };
 }
 
