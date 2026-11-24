@@ -1,7 +1,7 @@
 import { NODATA } from "./constants";
 import { median } from "./format";
 import type { CatMode, ColorBy, HistRow, Measure, Model } from "../data/types";
-import { CATEGORY_MODES, MEASURES } from "./constants";
+import { CATEGORY_MODES, MEASURES, SIN_PRECIO } from "./constants";
 
 export const isCatMode = (c: ColorBy): c is CatMode => c in CATEGORY_MODES;
 export const measureOf = (c: ColorBy): Measure => (c in MEASURES ? (c as Measure) : "consumo");
@@ -27,8 +27,8 @@ export interface Agg {
 
 /** Agregados de un grupo (zona o subgrupo) para el mes, la medida y los filtros actuales */
 export function aggregate(model: Model, list: Int32Array, mi: number, colorBy: ColorBy, passes: (i: number) => boolean): Agg {
-  const { M, kwh, kw, pr } = model;
-  let total = 0, nk = 0, kwhPriced = 0, imp = 0, count = 0;
+  const { M, kwh, kw, pr, sub, est } = model;
+  let total = 0, nk = 0, kwhPriced = 0, subPriced = 0, count = 0;
   const ks: number[] = [], ds: number[] = [], ps: number[] = [];
   const cat = isCatMode(colorBy) ? colorBy : null;
   const counts = cat ? new Int32Array(model.cats[cat].labels.length) : null;
@@ -37,13 +37,17 @@ export function aggregate(model: Model, list: Int32Array, mi: number, colorBy: C
     if (!passes(i)) continue;
     count++;
     if (counts) { const c = model.catIdx[cat!][i]; if (c >= 0) counts[c]++; }
-    const o = i * M + mi, k = kwh[o], d = kw[o], p = pr[o];
-    // Precio de la zona: ponderado por kWh (Σ precio × kWh / Σ kWh)
-    if (isFinite(k)) { total += k; nk++; ks.push(k); if (isFinite(p) && k > 0) { kwhPriced += k; imp += p * k; ps.push(p); } }
+    const o = i * M + mi, k = kwh[o], d = kw[o], p = pr[o], s = sub[o];
+    // Un mes de lectura estimada no es consumo: no entra al total ni a la mediana
+    if (isFinite(k) && !est[o]) {
+      total += k; nk++; ks.push(k);
+      // Precio de la zona, sin IVA y ponderado por kWh: Σ subtotal / Σ kWh de los meses con precio comparable
+      if (isFinite(p) && isFinite(s) && k > 0) { kwhPriced += k; subPriced += s; ps.push(p); }
+    }
     if (isFinite(d)) ds.push(d);
   }
   // El color usa la mediana por inmueble: unos pocos sitios grandes no tiñen toda la zona
-  const avg = { consumo: median(ks), demanda: median(ds), precio: kwhPriced ? imp / kwhPriced : NaN };
+  const avg = { consumo: median(ks), demanda: median(ds), precio: kwhPriced ? subPriced / kwhPriced : NaN };
   const tot = nk ? total : NaN;
   if (cat && counts) {
     let top = -1, tn = 0;
@@ -63,8 +67,12 @@ export function histOf(model: Model, i: number): HistRow[] {
   const out: HistRow[] = [];
   for (let j = model.histOff[i]; j < model.histOff[i + 1]; j++) {
     const t = model.hKey[j] + 24000, y = Math.floor(t / 12), m = (t % 12) + 1;
-    const s = model.hSrc[j];
-    out.push({ key: `${y}-${String(m).padStart(2, "0")}`, kwh: model.hKwh[j], kw: model.hKw[j], imp: model.hImp[j], pr: model.hPr[j], src: s === 1 ? "impreso" : s === 2 ? "importe" : null });
+    const est = model.hEst[j] === 1, dud = model.hDud[j] === 1, ori = model.hOri[j];
+    out.push({
+      key: `${y}-${String(m).padStart(2, "0")}`,
+      kwh: est ? NaN : model.hKwh[j], kw: dud ? NaN : model.hKw[j], sub: model.hSub[j], pr: model.hPrS[j],
+      est, dud, sinPr: ori > 0 ? SIN_PRECIO[ori - 1] ?? null : null
+    });
   }
   return out;
 }

@@ -1,4 +1,4 @@
-import type { CatMode, Measure } from "../data/types";
+import type { CatMode, Measure, SinPrecio } from "../data/types";
 
 export const CONFIG = {
   supabaseUrl: (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "",
@@ -22,6 +22,8 @@ export const CONFIG = {
 
 export const RAMP = ["#e9e3bd", "#cfdfb0", "#aed3aa", "#8cc4ad", "#73b1b4", "#6a9bbd", "#6c85c3", "#6d6db9", "#6655a4", "#533c84"];
 export const NODATA = "#c3c5cf";
+/** Mes de lectura estimada: CFE no leyó el medidor. No es consumo cero ni «sin dato» */
+export const ESTIMADA = "#e0915a";
 export const VIEW2 = 8.5, VIEW3 = 12;
 export const ZOOM_CALLES = 11;   // zoom donde aparece el mapa de calles: VIEW2 < ZOOM_CALLES < VIEW3
 export const MES_CORTO = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -29,21 +31,33 @@ export const MES_LARGO = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
 
 export const MEASURES: Record<Measure, { title: string; unit: string; chartColor: string }> = {
   consumo: { title: "Consumo", unit: "kWh/mes", chartColor: "#a9b6ee" },
-  precio: { title: "Precio por kWh", unit: "$/kWh", chartColor: "#f3cf96" },
+  precio: { title: "Precio por kWh", unit: "$/kWh sin IVA", chartColor: "#f3cf96" },
   demanda: { title: "Demanda", unit: "kW", chartColor: "#f0b3c4" }
 };
 export const CATEGORY_MODES: Record<CatMode, { title: string }> = {
   dependencia: { title: "Dependencia" },
   tarifa: { title: "Tarifa" },
   interconexion: { title: "Interconexión" },
-  ubicacion: { title: "Ubicación validada" }
+  ubicacion: { title: "Ubicación confiable" }
+};
+
+/** Motivos por los que un mes no tiene precio comparable (precio_origen), en el orden del código de Model.hOri */
+export const SIN_PRECIO: SinPrecio[] = ["consumo_minimo", "atipico", "refacturacion", "sin_decena", "lectura_estimada"];
+export const SIN_PRECIO_TXT: Record<SinPrecio, string> = {
+  consumo_minimo: "sin precio: consumo mínimo (el cargo fijo es más de la mitad)",
+  atipico: "sin precio: valor atípico, en revisión",
+  refacturacion: "sin precio: mes refacturado por CFE",
+  sin_decena: "sin precio: el recibo lo imprime incompleto",
+  lectura_estimada: "sin precio: lectura estimada"
 };
 
 export const FEATURE_LABEL: Record<string, string> = { FOTOVOLTAICO: "Fotovoltaico", NETMET: "NETMET" };
 export const FEATURE_COLORS: Record<string, string> = { "Fotovoltaico": "#f0c27a", "NETMET": "#8fa3e8", "Sin interconexión": "#d5d7e0" };
 export const CAT_PALETTE = ["#8fa3e8", "#e89aa8", "#f0c27a", "#6fc2b0", "#b79be0", "#7fb8c9", "#c9b48f", "#a8d08d", "#e7a3d0", "#9fb0c4"];
 export const TARIFA_COLORS: Record<string, string> = { PDBT: "#f0c27a", GDBT: "#8fd0b6", GDMTO: "#8fa3e8", GDMTH: "#6f62bd" };
-export const UBIC_COLORS: Record<string, string> = { "Validada": "#86cf98", "Sin validar": "#ef9c9c", "Sin dato": "#c3c5cf" };
+/** Confiable: a 250 m o menos del plantel del catálogo, o ubicada con link de Google Maps. «Sin confirmar» va en
+    un tono neutro: no es un error, es que nadie la ha comprobado. */
+export const UBIC_COLORS: Record<string, string> = { "Confiable": "#86cf98", "Sin confirmar": "#e3c98f", "Sin dato": "#c3c5cf" };
 
 /** Uso del suelo (INEGI Serie V) en dos mitades: algunos teléfonos no cargan texturas de más de 4 096 px */
 export const USO_SUELO = [
