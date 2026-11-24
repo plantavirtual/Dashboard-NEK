@@ -29,14 +29,14 @@ export function TopBar({ onLogout, email, onRecibos }: { onLogout: () => void; e
           <select id="colorSel" value={colorBy} onChange={(e) => setColorBy(e.target.value as ColorBy)}>
             <optgroup label="Medidas del recibo">
               <option value="consumo">Consumo (kWh)</option>
-              <option value="precio">Precio por kWh</option>
+              <option value="precio">Precio por kWh (sin IVA)</option>
               <option value="demanda">Demanda (kW)</option>
             </optgroup>
             <optgroup label="Características">
               <option value="dependencia">Dependencia</option>
               <option value="tarifa">Tarifa</option>
               <option value="interconexion">Interconexión</option>
-              <option value="ubicacion">Ubicación validada</option>
+              <option value="ubicacion">Ubicación confiable</option>
             </optgroup>
           </select>
         </label>

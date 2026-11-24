@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { CATEGORY_MODES, MEASURES, MES_CORTO, MES_LARGO, VIEW_LABELS } from "../lib/constants";
+import { CATEGORY_MODES, ESTIMADA, MEASURES, MES_CORTO, MES_LARGO, NODATA, VIEW_LABELS } from "../lib/constants";
 import { fmtCorte, fmtMeasure, nfInt } from "../lib/format";
 import { isCatMode, matrixOf, measureOf } from "../lib/selectors";
 import { useStore } from "../store";
@@ -69,10 +69,10 @@ function Legend() {
         ))}
       </div>
       <div className="keys" id="lgKeys" hidden={cat}>
-        <span><i className="kdot" style={{ background: "#c3c5cf" }} />0 o sin dato en el mes</span>
+        <span><i className="kdot" style={{ background: NODATA }} />{measure === "precio" ? "Sin precio comparable en el mes" : "0 o sin dato en el mes"}</span>
+        {measure === "consumo" && <span title="CFE no leyó el medidor ese mes: no es consumo cero"><i className="kdot" style={{ background: ESTIMADA }} />Lectura estimada</span>}
         <span><i className="kdot" style={{ background: "#fff", boxShadow: "inset 0 0 0 1.3px #a7aab8" }} />Sin historial</span>
       </div>
-      <div className="lg-src" id="lgSrc" hidden={cat || measure !== "precio"}>¹ precio medio impreso · ² importe ÷ kWh</div>
       <div className="viewind">
         <span className="bars" id="viewBars">{[0, 1, 2].map((k) => <i key={k} className={k < view ? "on" : undefined} />)}</span>
         <span id="viewLabel">{VIEW_LABELS[view - 1]}</span>
@@ -150,8 +150,19 @@ function Timeline() {
 }
 
 export function BottomPanel() {
+  const ref = useRef<HTMLElement>(null);
+  // Alto del panel como variable CSS: los créditos del mapa se colocan encima cuando el panel los taparía
+  useLayoutEffect(() => {
+    const el = ref.current, wrap = document.getElementById("mapWrap");
+    if (!el || !wrap) return;
+    const set = () => wrap.style.setProperty("--bp-h", el.offsetHeight + "px");
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   return (
-    <section id="bottomPanel" aria-label="Escala y meses">
+    <section id="bottomPanel" ref={ref} aria-label="Escala y meses">
       <Legend />
       <div className="divider" />
       <Timeline />

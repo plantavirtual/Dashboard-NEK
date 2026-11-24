@@ -9,8 +9,10 @@ export interface Prom { todo: number; doce: number; n12: number; ini: string | n
 export function Chart(p: {
   title: ReactNode; unit: string; keys: string[]; vals: number[]; color: string; fmt: (v: number) => string;
   emptyText: string; prom: Prom; selKey: string; tIndex: Map<string, number>;
+  /** Por mes: por qué no hay valor (lectura estimada, sin precio comparable…); null = «sin registro» */
+  notes?: (string | null)[];
 }) {
-  const { keys, vals, color, fmt, prom, selKey, tIndex } = p;
+  const { keys, vals, color, fmt, prom, selKey, tIndex, notes } = p;
   const n = keys.length;
   if (!vals.some(isFinite)) {
     return <div className="chart"><h4><i className="t">{p.title}</i><span>{p.unit}</span></h4><div className="empty">{p.emptyText}</div></div>;
@@ -44,7 +46,7 @@ export function Chart(p: {
         {keys.map((key, j) => {
           const v = vals[j], x = L + j * bw + (bw - barW) / 2, sel = key === selKey;
           const k = tIndex.has(key) ? String(tIndex.get(key)) : "";
-          const tip = `${keyLabel(key)}: ${isFinite(v) ? fmt(v) : "sin registro"}`;
+          const tip = `${keyLabel(key)}: ${isFinite(v) ? fmt(v) : notes?.[j] ?? "sin registro"}`;
           const [yy, mm] = key.split("-").map(Number);
           return (
             <g key={key}>

@@ -1,11 +1,11 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { Map as MLMap } from "maplibre-gl";
-import { CATEGORY_MODES, MEASURES, MES_CORTO, NODATA } from "../lib/constants";
+import { CATEGORY_MODES, ESTIMADA, MEASURES, MES_CORTO, NODATA, SIN_PRECIO_TXT } from "../lib/constants";
 import { fmtEnergy, fmtKw, fmtMeasure, fmtPrice, keyLabel } from "../lib/format";
 import { histOf, isCatMode, matrixOf, measureOf } from "../lib/selectors";
 import { catLabel } from "../lib/categories";
 import { useStore } from "../store";
-import { FeatChips, SrcMark, colorForValue, histStats, ventana12 } from "./common";
+import { FeatChips, colorForValue, histStats, ventana12 } from "./common";
 
 /** Tarjeta al pasar sobre un punto */
 export function HoverCard({ map }: { map: MLMap | null }) {
@@ -36,6 +36,12 @@ export function HoverCard({ map }: { map: MLMap | null }) {
   const m = model.months[month];
   const v = matrixOf(model, measure)[p.i * model.M + month];
   const v12 = ventana12(hist), st = histStats(v12.h);
+  // El mes elegido: si es de lectura estimada no hay consumo que mostrar, y si no tiene precio se dice por qué
+  const row = hist.find((r) => r.key === m.key);
+  const estimado = measure === "consumo" && row?.est === true;
+  const sinDato = measure === "precio" && row?.sinPr ? SIN_PRECIO_TXT[row.sinPr]
+    : measure === "demanda" && row?.dud ? "demanda dudosa" : "sin dato";
+  const zonaCfe = [p.division, p.zonaDist].filter(Boolean).join(" · ");
   const catColor = cat ? model.cats[colorBy].colors[model.catIdx[colorBy][p.i]] ?? NODATA : NODATA;
   const prom = (
     <small>Últimos 12 meses{st.n < 12 ? ` (${st.n} con dato)` : ""}{st.n ? ` · ${keyLabel(v12.ini!)} – ${keyLabel(v12.fin!)}` : ""}</small>
@@ -48,7 +54,7 @@ export function HoverCard({ map }: { map: MLMap | null }) {
       <dl className="kv">
         {p.region && <><dt>{p.regionTipo}</dt><dd>{p.region}</dd></>}
         <dt>RPU</dt><dd>{p.rpu || "—"}</dd>
-        <dt>Nodo</dt><dd>{p.nodo ? String(p.nodo) : "N/A"}</dd>
+        <dt>Zona CFE</dt><dd>{zonaCfe || "Sin recibo"}</dd>
         {(p.feature || p.bidir) && <><dt>Características</dt><dd className="feats"><FeatChips p={p} /></dd></>}
       </dl>
       {isCatMode(colorBy) && (
@@ -58,14 +64,15 @@ export function HoverCard({ map }: { map: MLMap | null }) {
       {p.hasHist ? (
         <>
           <div className="hc-row" style={cat ? { marginTop: 6 } : undefined}>
-            <span className="dot" style={cat ? { background: "transparent", boxShadow: "inset 0 0 0 1.3px #c3c5cf" } : { background: colorForValue(model, measure, v) }} />
+            <span className="dot" style={cat ? { background: "transparent", boxShadow: "inset 0 0 0 1.3px #c3c5cf" } : { background: estimado ? ESTIMADA : colorForValue(model, measure, v) }} />
             <span>{MEASURES[measure].title} en {MES_CORTO[m.m]} {m.y}:{" "}
               <b>{measure === "demanda" && p.demandaAplica === false ? "N/A"
-                : isFinite(v) ? <>{fmtMeasure(measure, v)}{measure === "precio" && <SrcMark src={p.prSrc} />}</> : "sin dato"}</b></span>
+                : estimado ? "lectura estimada"
+                : isFinite(v) ? <>{fmtMeasure(measure, v)}{measure === "precio" && " sin IVA"}</> : sinDato}</b></span>
           </div>
           <div className="hc-avg">Promedio: <b>{fmtEnergy(st.kwh)}</b>/mes
             {p.demandaAplica === false ? " · demanda N/A" : isFinite(st.kw) ? <> · <b>{fmtKw(st.kw)}</b></> : null}
-            {isFinite(st.pr) && <> · <b>{fmtPrice(st.pr)}</b><SrcMark src={p.prSrc} /></>}
+            {isFinite(st.pr) && <> · <b>{fmtPrice(st.pr)}</b> sin IVA</>}
             {prom}</div>
         </>
       ) : (

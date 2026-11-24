@@ -4,12 +4,13 @@ import { histOf } from "../lib/selectors";
 import { useStore } from "../store";
 import { useVisible } from "../lib/useVisible";
 import { Chart } from "./Chart";
-import { FeatChips, SrcMark, endLabel, histStats, ventana12 } from "./common";
+import { SIN_PRECIO_TXT } from "../lib/constants";
+import { FeatChips, endLabel, histStats, ventana12 } from "./common";
 
-function Box(p: { lab: string; v: number; f: (v: number) => string; unit: string; na: string; mark?: ReactNode; n: number }) {
+function Box(p: { lab: string; v: number; f: (v: number) => string; unit: string; na: string; n: number }) {
   return (
     <div className="sbox">
-      <div className="lab">{p.lab}{p.mark}</div>
+      <div className="lab">{p.lab}</div>
       {isFinite(p.v)
         ? <><div className="num">{p.f(p.v)}<small>{p.unit}</small></div>{p.n < 12 && <div className="flag">{p.n} de 12 meses con dato</div>}</>
         : <div className="num na">{p.na}</div>}
@@ -46,7 +47,9 @@ export function SidePanel() {
     const sinDemanda = p.demandaAplica === false;
     const det: [string, string][] = [
       ["Dependencia", p.dependencia], ["Zona", (zone ? zone.nombre : "—") + (sub && !sub.single ? " · " + sub.nombre : "")],
-      ...(p.region ? [[p.regionTipo, p.region] as [string, string]] : []), ["Municipio", p.municipio || "—"], ["RPU", p.rpu || "—"], ["Nodo", p.nodo ? String(p.nodo) : "N/A"],
+      ...(p.region ? [[p.regionTipo, p.region] as [string, string]] : []), ["Municipio", p.municipio || "—"], ["RPU", p.rpu || "—"],
+      // División y zona de distribución de CFE (del código de la cuenta). El número de zona se repite entre divisiones
+      ["División CFE", p.division || "Sin recibo"], ["Zona de distribución", p.zonaDist || "Sin recibo"],
       ["Fin del último recibo", endLabel(p, model)],
       ["Meses en la línea de tiempo", `${model.months.filter((_, k) => isFinite(model.kwh[p.i * model.M + k]) || isFinite(model.imp[p.i * model.M + k])).length} de ${model.M}`]
     ];
@@ -58,7 +61,8 @@ export function SidePanel() {
     }
     const byKey = new Map(hist.map((r) => [r.key, r]));
     const serie = (f: (r: (typeof hist)[number]) => number) => keys.map((k) => { const r = byKey.get(k); return r ? f(r) : NaN; });
-    const fuente = p.prSrc === "impreso" ? "precio medio impreso en el historial" : p.prSrc === "importe" ? "importe ÷ kWh" : "";
+    const nota = (f: (r: (typeof hist)[number]) => string | null) => keys.map((k) => { const r = byKey.get(k); return r ? f(r) : null; });
+    const estimados = hist.some((r) => r.est);
     const selKey = model.months[month].key;
     const tIndex = new Map(model.months.map((m, k) => [m.key, k]));
     const prom = (todo: number, doce: number, n12: number) => ({ todo, doce, n12, ini: v12.ini });
@@ -71,8 +75,9 @@ export function SidePanel() {
         <div className="chips">
           {p.tarifa && <span className="chip">Tarifa {p.tarifa}</span>}
           <FeatChips p={p} />
-          {p.valid === true && <span className="chip ok">Ubicación validada</span>}
-          {p.valid === false && <span className="chip bad">Ubicación sin validar</span>}
+          {p.confiable === true && <span className="chip ok">Ubicación confiable</span>}
+          {p.confiable === false && <span className="chip">Ubicación sin confirmar</span>}
+          {p.lectEst && <span className="chip est">Último recibo con lectura estimada</span>}
         </div>
       </>
     );
@@ -82,21 +87,25 @@ export function SidePanel() {
         <div className="summary">
           <Box lab="Consumo promedio" v={s12.kwh} f={(v) => nfInt.format(v)} unit="kWh/mes" na="Sin dato" n={s12.nk} />
           <Box lab="Demanda promedio" v={sinDemanda ? NaN : s12.kw} f={(v) => (v < 100 ? nf1 : nfInt).format(v)} unit="kW" na={sinDemanda ? "N/A" : "Sin dato"} n={s12.nw} />
-          <Box lab="Importe promedio" v={s12.imp} f={(v) => "$" + nfInt.format(v)} unit="MXN/mes" na={p.prSrc === "impreso" ? "No impreso" : "Sin dato"} n={s12.ni} />
-          <Box lab="Precio promedio" v={s12.pr} f={(v) => "$" + nf2.format(v)} unit="por kWh" na="Sin dato" mark={<SrcMark src={p.prSrc} />} n={s12.np} />
+          <Box lab="Subtotal promedio" v={s12.sub} f={(v) => "$" + nfInt.format(v)} unit="MXN/mes sin IVA" na="Sin dato" n={s12.ns} />
+          <Box lab="Precio promedio" v={s12.pr} f={(v) => "$" + nf2.format(v)} unit="por kWh sin IVA" na="Sin dato" n={s12.np} />
         </div>
         <div className="basis">
           {st.n
-            ? <>Promedios de los últimos 12 meses ({keyLabel(v12.ini!)} – {keyLabel(v12.fin!)}) · historial completo: {st.n} meses desde {keyLabel(st.desde!)}{fuente && <> · <SrcMark src={p.prSrc} /> {fuente}</>}</>
+            ? <>Promedios de los últimos 12 meses ({keyLabel(v12.ini!)} – {keyLabel(v12.fin!)}) · historial completo: {st.n} meses desde {keyLabel(st.desde!)} · precio y subtotal sin IVA</>
             : "Sin historial registrado"}
+          {estimados && <> · Los meses de lectura estimada no cuentan como consumo: CFE no leyó el medidor.</>}
+          {isFinite(p.kwhEst) && <> El último recibo cobra energía sin imprimir kWh; por lo cobrado serían unos <b>{nfInt.format(p.kwhEst)} kWh</b> (estimación).</>}
         </div>
-        <Chart {...common} title="Consumo" unit="kWh" vals={serie((r) => r.kwh)} color="#a9b6ee" fmt={fmtEnergy} emptyText="Sin historial registrado" prom={prom(st.kwh, s12.kwh, s12.nk)} />
-        <Chart {...common} title="Demanda" unit="kW" vals={serie((r) => r.kw)} color="#f0b3c4" fmt={fmtKw}
+        <Chart {...common} title="Consumo" unit="kWh" vals={serie((r) => r.kwh)} color="#a9b6ee" fmt={fmtEnergy} emptyText="Sin historial registrado" prom={prom(st.kwh, s12.kwh, s12.nk)}
+          notes={nota((r) => (r.est ? "lectura estimada (CFE no leyó el medidor)" : null))} />
+        <Chart {...common} title="Demanda" unit="kW" vals={serie((r) => r.kw)} color="#f0b3c4" fmt={fmtKw} notes={nota((r) => (r.dud ? "demanda dudosa, en revisión" : null))}
           emptyText={!st.n ? "Sin historial registrado" : sinDemanda ? "N/A: la tarifa de este inmueble no registra demanda" : "Sin registros de demanda"} prom={prom(st.kw, s12.kw, s12.nw)} />
-        <Chart {...common} title="Importe" unit="MXN" vals={serie((r) => r.imp)} color="#9fd5bb" fmt={fmtMoney}
-          emptyText={!st.n ? "Sin historial registrado" : p.prSrc === "impreso" ? "El historial de esta tarifa no imprime importe; el precio es el precio medio impreso" : "Sin importes facturados"} prom={prom(st.imp, s12.imp, s12.ni)} />
-        <Chart {...common} title={<>Precio por kWh<SrcMark src={p.prSrc} /></>} unit="MXN/kWh" vals={serie((r) => r.pr)} color="#f3cf96" fmt={(v) => "$" + nf2.format(v)}
-          emptyText={st.n ? "Sin datos para el precio" : "Sin historial registrado"} prom={prom(st.pr, s12.pr, s12.np)} />
+        <Chart {...common} title="Subtotal sin IVA" unit="MXN" vals={serie((r) => r.sub)} color="#9fd5bb" fmt={fmtMoney}
+          emptyText={!st.n ? "Sin historial registrado" : "Sin montos facturados"} prom={prom(st.sub, s12.sub, s12.ns)} />
+        <Chart {...common} title="Precio por kWh sin IVA" unit="MXN/kWh" vals={serie((r) => r.pr)} color="#f3cf96" fmt={(v) => "$" + nf2.format(v)}
+          emptyText={st.n ? "Sin meses con precio comparable" : "Sin historial registrado"} prom={prom(st.pr, s12.pr, s12.np)}
+          notes={nota((r) => (r.sinPr ? SIN_PRECIO_TXT[r.sinPr] : null))} />
       </>
     );
   }
