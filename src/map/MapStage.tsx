@@ -42,7 +42,9 @@ export function MapStage() {
       attributionControl: false, dragRotate: false, pitchWithRotate: false, touchPitch: false
     });
     m.touchZoomRotate.disableRotation();
-    m.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: "Límites: INEGI 2022 · Natural Earth · Uso de suelo: INEGI Serie V" }), "bottom-right");
+    // Créditos (OpenStreetMap, Protomaps, INEGI) en la esquina inferior izquierda. styles.css los sube por
+    // encima del panel inferior cuando el panel los taparía.
+    m.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: "Límites: INEGI 2022 · Natural Earth · Uso de suelo: INEGI Serie V" }), "bottom-left");
     const updateView = () => {
       const z = m.getZoom();
       useStore.getState().setView(z < VIEW2 ? 1 : z < VIEW3 ? 2 : 3);
@@ -54,7 +56,7 @@ export function MapStage() {
       m.on("move", updateView);
       setMc({ map: m, fitZoom });
       // El mapa de calles va al final para no retrasar el resto; sin tamaulipas.pmtiles el mapa sigue sin calles
-      void instalarMapaBase(m, { archivo: "tamaulipas.pmtiles", recursos: "basemap-assets", zoomCalles: ZOOM_CALLES, tipografia: "Lato" });
+      void instalarMapaBase(m, { archivo: "tamaulipas-lite.pmtiles", recursos: "basemap-assets", zoomCalles: ZOOM_CALLES, tipografia: "Lato" });
     });
     return () => { m.remove(); setMc(null); setPointsReady(false); };
   }, []);

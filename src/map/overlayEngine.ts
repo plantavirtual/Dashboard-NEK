@@ -82,6 +82,9 @@ export class OverlayEngine {
     const rel = (r: DOMRect, pad = 8): Rect => ({ x0: r.left - wrap.left - pad, y0: r.top - wrap.top - pad, x1: r.right - wrap.left + pad, y1: r.bottom - wrap.top + pad });
     const out = [rel(document.getElementById("zoomCtl")!.getBoundingClientRect()), rel(document.getElementById("bottomPanel")!.getBoundingClientRect())];
     if (document.body.classList.contains("panel-open")) out.push(rel(document.getElementById("sidePanel")!.getBoundingClientRect()));
+    // Los créditos del mapa (esquina inferior izquierda): las píldoras no los tapan
+    const cred = document.querySelector("#map .maplibregl-ctrl-bottom-left .maplibregl-ctrl-attrib");
+    if (cred) out.push(rel(cred.getBoundingClientRect(), 4));
     return out;
   }
   private place(ax: number, ay: number, w: number, h: number, placed: Rect[], W: number, H: number, allowOverlap: boolean, prevOff: [number, number] | null): Rect | null {

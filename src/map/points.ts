@@ -1,5 +1,5 @@
 import type { GeoJSONSource, Map as MLMap } from "maplibre-gl";
-import { NODATA } from "../lib/constants";
+import { ESTIMADA, NODATA } from "../lib/constants";
 import { isCatMode, measureOf } from "../lib/selectors";
 import type { CatMode, ColorBy, Model } from "../data/types";
 
@@ -55,7 +55,8 @@ function colorExpr(model: Model, colorBy: ColorBy, month: number): Expr {
   }
   const m = measureOf(colorBy);
   const arms = model.scales[m].colors.flatMap((c, i) => [i, c]);
-  return ["case", ["==", ["get", "h"], 0], "#ffffff", ["match", ["get", PREFIX[m] + month], -1, NODATA, ...arms, NODATA]];
+  // -1 = sin dato (o sin precio comparable); -2 = lectura estimada, solo en consumo
+  return ["case", ["==", ["get", "h"], 0], "#ffffff", ["match", ["get", PREFIX[m] + month], -1, NODATA, -2, ESTIMADA, ...arms, NODATA]];
 }
 
 export function stylePoints(map: MLMap, model: Model, colorBy: ColorBy, month: number) {
