@@ -37,7 +37,11 @@ export async function cargarOficial(): Promise<Oficial> {
 
 /* ── Parámetros del cálculo: ajústalos contra un recibo real ── */
 
-export const IVA = 0.16;
+/**
+ * El tablero trabaja sin IVA (igual que historial.subtotal y precio_sin_iva), así que el cálculo con la tabla
+ * de CFE tampoco lo suma. Si algún día se quiere con IVA, cambiar a 0.16 aquí y en los textos.
+ */
+export const IVA = 0;
 /** Reparto del consumo GDMTH por periodo horario cuando el recibo no trae kWh base/intermedia/punta */
 export const PERFIL_HORARIO: Record<string, number> = { base: 0.2, intermedia: 0.62, semipunta: 0, punta: 0.18 };
 /** Factor de carga de las disposiciones de la tarifa: demanda facturable = mín(kW máx., kWh / (24 · días · FC)) */
@@ -74,18 +78,21 @@ export function costoTarifa(tar: string, c: Cargos, kwh: number, kw: number, dia
   return p;
 }
 
-type Busca = (tar: string, mun: string, per: string) => { c: Cargos; g: GrupoTarifa; aprox: boolean } | null;
-/** tarifa → municipio → grupo; si falta el mes exacto usa el publicado más cercano (anterior, o el primero) */
+type Busca = (tar: string, mun: string, per: string, division?: string) => { c: Cargos; g: GrupoTarifa; aprox: boolean } | null;
+/**
+ * tarifa → grupo: primero por la división del inmueble (inmuebles.division, dato de Supabase);
+ * si no la tiene, por municipio. Si falta el mes exacto usa el publicado más cercano (anterior, o el primero).
+ */
 export function indiceTarifas(t: TarifasJson | null): Busca {
-  const idx = new Map<string, Map<string, GrupoTarifa>>();
+  const idx = new Map<string, Map<string, GrupoTarifa>>(), porDiv = new Map<string, Map<string, GrupoTarifa>>();
   for (const [tar, o] of Object.entries(t?.tarifas ?? {})) {
-    const m = new Map<string, GrupoTarifa>();
-    for (const g of o.grupos) for (const mu of g.municipios) m.set(normTxt(mu), g);
-    idx.set(normTarifa(tar), m);
+    const m = new Map<string, GrupoTarifa>(), d = new Map<string, GrupoTarifa>();
+    for (const g of o.grupos) { for (const mu of g.municipios) m.set(normTxt(mu), g); d.set(normTxt(g.division.replace(/_/g, " ")), g); }
+    idx.set(normTarifa(tar), m); porDiv.set(normTarifa(tar), d);
   }
   const meses = new Map<GrupoTarifa, string[]>();
-  return (tar, mun, per) => {
-    const m = idx.get(tar), g = m?.get(normTxt(mun)) ?? m?.get("*");
+  return (tar, mun, per, division) => {
+    const m = idx.get(tar), g = (division && porDiv.get(tar)?.get(normTxt(division))) || m?.get(normTxt(mun)) || m?.get("*");
     if (!g) return null;
     if (g.meses[per]) return { c: g.meses[per], g, aprox: false };
     let ms = meses.get(g);
@@ -116,29 +123,22 @@ export function indiceNodos(n: NodosJson | null) {
 }
 
 /**
- * Costo de cada mes de historial:
- *  · GDMTH → con la tabla oficial CFE de su grupo (nodo) y mes; lo facturado queda para comparar.
- *  · Resto → importe del recibo (formato 2); si no lo trae, kWh × precio impreso (formato 1);
- *    si tampoco hay precio, la tabla oficial; si no hay tabla, sin costo.
+ * Costo de cada mes de historial, para todas las tarifas (GDMTH incluida):
+ *  · el subtotal del recibo sin IVA (historial.subtotal), que existe para todas las tarifas;
+ *  · si el mes no lo trae (p. ej. precio impreso incompleto), la tabla oficial de CFE de su división y mes, sin IVA;
+ *  · si tampoco hay tabla, sin costo.
+ * El cálculo con la tabla de CFE se guarda siempre en «calc» para comparar contra el subtotal.
  */
 export function aplicarOficial(rows: Row[], of: Oficial | null): Row[] {
   const tf = indiceTarifas(of?.tar ?? null), nz = indiceNodos(of?.nodos ?? null);
   return rows.map((r) => {
-    const sinActividad = !r.hasImp && r.kwh === 0 && r.kw === 0;
-    const t = sinActividad ? null : tf(r.tarCFE, r.mun, r.per);
+    const t = tf(r.tarCFE, r.mun, r.per, r.division === "Sin división" ? "" : r.division);
     const partes = t ? costoTarifa(r.tarCFE, t.c, r.kwh, r.kw, r.dias) : null;
     const calc = partes ? sumPartes(partes) : NaN;
-
     let total = 0, src: Row["src"] = "none";
-    if (sinActividad) { total = 0; src = Number.isFinite(r.fact) ? "precio" : "none"; }
-    else if (r.tarCFE === "GDMTH" && partes) { total = calc; src = "cfe"; }
-    else if (r.hasImp) { total = r.imp; src = "recibo"; }
-    else if (Number.isFinite(r.fact)) { total = r.fact; src = "precio"; }
-    else if (partes) { total = calc; src = "cfe"; }
-
-    return {
-      ...r, calc, partes, grupoTar: t?.g.division ?? "", tarAprox: t?.aprox ?? false, total, src,
-      kwhCosto: src === "none" ? 0 : r.kwh, nodo: nz(r.nodoP, r.mun)
-    };
+    if (Number.isFinite(r.sub)) { total = r.sub; src = "subtotal"; }
+    else if (partes && r.kwh > 0) { total = calc; src = "cfe"; }
+    return { ...r, calc, partes, grupoTar: t?.g.division ?? "", tarAprox: t?.aprox ?? false, total, src,
+      kwhCosto: src === "none" ? 0 : r.kwh, nodo: nz(r.nodoP, r.mun) };
   });
 }

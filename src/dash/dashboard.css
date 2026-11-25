@@ -49,7 +49,7 @@
 /* Tarjetas KPI (Números protagonistas) */
 .dash .d-kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(170px,100%),1fr)); gap:5px; margin-bottom:16px}
 .dash .d-kpi{
-  background:var(--card); border:1px solid var(--bd); border-radius:var(--rad); padding:14px 16px;
+  background:var(--card); border:1px solid var(--bd); border-radius:5px; padding:14px 16px;
   min-width:0; box-shadow:var(--sh); display:flex; flex-direction:column; justify-content:space-between; gap:6px;
 }
 .dash .d-kpi span{display:block; font-size:12px; font-weight:500; color:var(--mut); line-height:1.3}

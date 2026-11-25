@@ -6,12 +6,12 @@ import "@fontsource/ibm-plex-sans/600.css";
 import "./dashboard.css";
 import { useStore } from "../store";
 import { TARIFA_COLORS } from "../lib/constants";
-import { MES_DESDE, MES_HASTA, FACTOR_ATIPICO, GRUPO_BT, normTarifa, FC_DEFECTO, LIMITE_DOMESTICA_KW, MIN_MUESTRA, PDBT_MAX_KW, PRECIO_MAX, PRECIO_MIN, RESPALDO_CONSUMO, TAR_DEMANDA, buildRows, kwPorConsumo, limiteKw, normTxt, referenciaFc, type Row } from "./rows";
-import { COLS_CARGO, FACTOR_CARGA, IVA, PERFIL_HORARIO, aplicarOficial, cargarOficial, type Oficial } from "./tarifas";
+import { esDomestica, MES_DESDE, MES_HASTA, FACTOR_ATIPICO, GRUPO_BT, normTarifa, FC_DEFECTO, LIMITE_DOMESTICA_KW, MIN_MUESTRA, PDBT_MAX_KW, FACTOR_VERANO, NOMBRE_VERANO, DISPERSION_PATRON, MIN_KW_ATIPICO, MIN_KWH_ATIPICO, MOTIVO_SIN_PRECIO, RESPALDO_CONSUMO, TAR_DEMANDA, buildRows, kwPorConsumo, limiteKw, normTxt, referenciaFc, type Row } from "./rows";
+import { aplicarOficial, cargarOficial, type Oficial } from "./tarifas";
 
 type Cfg = any;
-type Tab = "pg" | "co" | "dm" | "pc" | "np" | "vm";
-type GK = "tar" | "zona" | "nodo" | "dep" | "mun";
+type Tab = "pg" | "co" | "dm" | "pc" | "np";
+type GK = "tar" | "div" | "zona" | "nodo" | "dep" | "mun";
 
 const P = (n: number) => "$" + n.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** Montos: menos de un millón, la cifra exacta con centavos ($234,567.89); desde un millón, en millones con 2 decimales ($35.54 M) */
@@ -61,7 +61,7 @@ const initialTheme = (): Theme => {
 };
 
 type Num = (r: Row) => number;
-const tot: Num = (r) => r.total, kwh: Num = (r) => r.kwh, kwc: Num = (r) => r.kwhCosto;
+const tot: Num = (r) => r.total, kwh: Num = (r) => r.kwh;
 const sum = (a: Row[], f: Num) => { let s = 0; for (const r of a) s += f(r); return s; };
 /** Demanda máxima válida (descarta PDBT > 25 kW) */
 const maxKw = (a: Row[]) => { let m = 0; for (const r of a) if (r.kwOk && r.kw > m) m = r.kw; return m; };
@@ -71,8 +71,13 @@ const by = (R: Row[], f: (r: Row) => string) => {
   return m;
 };
 const keys = (m: Map<string, unknown>) => [...m.keys()].sort();
-/** $/kWh: solo con los recibos que tienen costo (recibo o tarifa CFE) */
-const unit = (a: Row[]) => { const q = sum(a, kwc); return q ? sum(a, tot) / q : 0; };
+/**
+ * $/kWh sin IVA, la misma fórmula del mapa: Σ subtotal ÷ Σ kWh de los meses que tienen precio_sin_iva.
+ * Los meses sin precio (consumo mínimo, atípico, refacturación, lectura estimada…) no entran.
+ */
+const conPrecio = (r: Row) => Number.isFinite(r.psi) && Number.isFinite(r.sub) && r.kwh > 0;
+const precioDe = (a: Row[]) => { let s = 0, q = 0; for (const r of a) if (conPrecio(r)) { s += r.sub; q += r.kwh; } return q ? s / q : null; };
+const unit = (a: Row[]) => precioDe(a) ?? 0;
 const distinct = (a: Row[], f: (r: Row) => string | number) => new Set(a.map(f)).size;
 /** Recibos = RPU distintos (cada fila es un mes del historial de un recibo) */
 const nRec = (a: Row[]) => distinct(a, (r) => r.rpu);
@@ -82,16 +87,42 @@ const porRecibo = (a: Row[]) => [...by(a, (r) => r.rpu)].map(([rpu, x]) => {
   return { rpu, r: x[0], n: x.length, desde: pers[0], hasta: pers[pers.length - 1], kwh: sum(x, kwh), kwMax: Math.max(0, ...x.map((r) => r.kw)),
     total: sum(x, tot), cfe: x.some((r) => r.src === "cfe"), exc: x.filter((r) => r.kw > PDBT_MAX_KW).length };
 });
-/** Suma de la demanda máxima de cada recibo (RPU) en el periodo: la demanda se mide por servicio */
-const sumMaxInm = (a: Row[]) => {
-  const m = new Map<string, number>();
-  for (const r of a) if (r.kwOk) m.set(r.rpu, Math.max(m.get(r.rpu) ?? 0, r.kw));
-  let s = 0; for (const v of m.values()) s += v; return s;
-};
 const XT = { ticks: { maxTicksLimit: 12 } };
+
+/* ── Demanda: es el tamaño de cada inmueble (kW), no algo que se acumule con el tiempo ── */
+/** Rangos de tamaño para agrupar inmuebles por su demanda máxima */
+const RANGOS_KW = [10, 25, 50, 100, 200, 500];
+const ETQ_RANGO = ["Hasta 10 kW", "10 a 25 kW", "25 a 50 kW", "50 a 100 kW", "100 a 200 kW", "200 a 500 kW", "Más de 500 kW"];
+const rangoKw = (kw: number) => { let i = 0; while (i < RANGOS_KW.length && kw > RANGOS_KW[i]) i++; return i; };
+const mediana = (v: number[]) => { if (!v.length) return 0; const a = [...v].sort((x, y) => x - y), k = a.length >> 1; return a.length % 2 ? a[k] : (a[k - 1] + a[k]) / 2; };
+/**
+ * Rango de demanda que contempla cada tarifa de CFE: PDBT hasta 25 kW; GDBT más de 25 kW (baja tensión);
+ * GDMTO menos de 100 kW y GDMTH 100 kW o más (media tensión). Domésticas: el tope supuesto de LIMITE_DOMESTICA_KW.
+ */
+const RANGO_TAR: Record<string, [number, number]> = { PDBT: [0, PDBT_MAX_KW], GDBT: [PDBT_MAX_KW, Infinity], GDMTO: [0, 100], GDMTH: [100, Infinity] };
+const rangoTarifa = (t: string): [number, number] | null => RANGO_TAR[t] ?? (esDomestica(t) ? [0, LIMITE_DOMESTICA_KW] : null);
+const txtRango = (g: [number, number]) => (g[1] === Infinity ? `más de ${N(g[0])} kW` : g[0] > 0 ? `${N(g[0])} a ${N(g[1])} kW` : `hasta ${N(g[1])} kW`);
+/** Cómo queda la demanda máxima de un inmueble frente a su referencia (contratada si existe; si no, el rango de su tarifa) */
+type Estado = "arriba" | "cerca" | "bien" | "holgada" | "sinref";
+const ETQ_ESTADO: Record<"contr" | "tarifa", Record<Estado, string>> = {
+  contr: { arriba: "Arriba de la contratada", cerca: "Cerca de la contratada (80–100 %)", bien: "Uso adecuado (50–80 %)", holgada: "Contratada de más (menos de 50 %)", sinref: "Sin demanda contratada" },
+  tarifa: { arriba: "Arriba del rango de su tarifa", cerca: "Cerca del tope de su tarifa (80–100 %)", bien: "Dentro del rango de su tarifa", holgada: "Abajo del rango de su tarifa", sinref: "Tarifa sin rango de referencia" }
+};
+const COLOR_ESTADO: Record<Estado, string> = { arriba: "#c0284e", cerca: "#d08c2e", bien: "#3f9a7f", holgada: "#4f86c6", sinref: "#9a9da2" };
+/** Demanda máxima de un inmueble (RPU) en el periodo: su mes más alto, medido y validado, o estimado si no mide demanda */
+interface Dem { rpu: string; r: Row; kw: number; medida: boolean; contr: number; ref: number; refTxt: string; uso: number; estado: Estado; tipoRef: "contr" | "tarifa" }
+const demandas = (a: Row[]): Dem[] => [...by(a.filter((r) => r.kwEst > 0), (r) => r.rpu)].map(([rpu, x]) => {
+  const r = x.reduce((b, y) => (y.kwEst > b.kwEst ? y : b), x[0]), kw = r.kwEst, contr = r.contratada;
+  if (Number.isFinite(contr) && contr > 0) {
+    const uso = kw / contr;
+    return { rpu, r, kw, medida: r.kwSrc === "medida", contr, ref: contr, refTxt: `${KW(contr)} contratados`, uso, tipoRef: "contr", estado: uso > 1 ? "arriba" : uso >= 0.8 ? "cerca" : uso >= 0.5 ? "bien" : "holgada" } as Dem;
+  }
+  const g = rangoTarifa(r.tarCFE);
+  const estado: Estado = !g ? "sinref" : kw > g[1] ? "arriba" : g[1] !== Infinity && kw >= 0.8 * g[1] ? "cerca" : kw < g[0] ? "holgada" : "bien";
+  return { rpu, r, kw, medida: r.kwSrc === "medida", contr: NaN, ref: g && g[1] !== Infinity ? g[1] : NaN, refTxt: g ? `${r.tarCFE}: ${txtRango(g)}` : "—",
+    uso: g && g[1] !== Infinity ? kw / g[1] : NaN, tipoRef: "tarifa", estado } as Dem;
+});
 const MES_CORTO = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-/** Σ por RPU del valor mensual: primero el máximo de cada RPU en el mes, luego la suma */
-const sumRpuMes = (a: Row[], f: (r: Row) => number) => { const m = new Map<string, number>(); for (const r of a) m.set(r.rpu, Math.max(m.get(r.rpu) ?? 0, f(r))); let s = 0; for (const v of m.values()) s += v; return s; };
 
 /** Consumo (línea) al frente y costo (barras) atrás: en Chart.js el dataset con menor «order» se dibuja encima */
 /** Eje de dinero y de kWh: marcas compactas ($250 k, $1.2 M); el valor exacto va en el tooltip */
@@ -291,8 +322,6 @@ function InfoPop({ titulo, children, etiqueta = "Consideraciones" }: { titulo: s
 const Cab = ({ t, info }: { t: any; info: any }) => (
   <div className="d-hrow"><h2>{t}</h2><InfoPop titulo={typeof t === "string" ? "Informe: " + t : "Informe de la gráfica"} etiqueta="Informe">{info}</InfoPop></div>
 );
-/** Sección de texto de la pestaña de metodología */
-const Sec = ({ t, children, w = "w12" }: { t: string; children: any; w?: string }) => <div className={"d-card " + w}><h2>{t}</h2><div className="d-txt">{children}</div></div>;
 const Kpis = ({ items, id }: { items: [string, string | number][]; id?: string }) => (
   <section className="d-kpis" id={id}>{items.map(([a, b]) => <div className="d-kpi" key={a}><span>{a}</span><b>{b}</b></div>)}</section>
 );
@@ -300,61 +329,31 @@ const Falta = ({ que, cmd }: { que: string; cmd: string }) => (
   <div className="d-card w12"><h2>Sin {que}</h2><p className="d-mut">Genera el archivo con <code>{cmd}</code> y vuelve a cargar la página.</p></div>
 );
 
-const ORIGEN: Record<Row["src"], string> = { recibo: "Importe del recibo", precio: "kWh × precio impreso", cfe: "Tabla CFE", none: "Sin costo" };
-/** Registro de cambios que se muestra en «Validación y metodología» */
-const CAMBIOS: [string, string, string, string][] = [
-  ["Conteo de recibos", "Cada fila del historial contaba como un recibo.", "Un recibo es un RPU único; las filas son los meses de su historial.", "Cada archivo de CFE corresponde a un RPU y trae varios meses."],
-  ["Meses repetidos", "Se sumaban dos veces.", "Un RPU con el mismo mes dos veces cuenta una sola.", "Evita duplicar consumo y gasto cuando se traslapan historiales."],
-  ["Costo sin importe", "Los recibos formato 1 (sin importe) quedaban sin costo.", "Se costean con kWh × precio impreso.", "En la muestra revisada eran el 95 % del consumo; el gasto salía en ~$2.7 M en vez de ~$35.5 M."],
-  ["Costo GDMTH", "Solo con el importe del recibo.", "Con la tabla oficial de CFE de su nodo y mes.", "Calcular a partir de la información oficial, por nodo."],
-  ["Validación de demanda", "Los kW se usaban tal como venían.", "Valores de 3× o más su mediana sin respaldo del consumo, en cero o imposibles se reemplazan con la media del RPU.", "Errores de captura como 36,707 kW distorsionaban la demanda máxima."],
-  ["Demanda PDBT", "Demanda media simple (kWh / 24 · días) o lectura del recibo.", "Estimada con el factor de carga de servicios medidos similares, máx. 25 kW.", "PDBT no mide demanda y la media simple la subestimaba."],
-  ["Indicador superior de demanda", "Demanda máxima de GDMTH/GDMTO.", "Demanda general aproximada de todas las tarifas (mes pico).", "Dar una cifra de demanda de toda la base."],
-  ["Recuadros superiores", "Siempre los mismos.", "Cambian según la pestaña.", "Mostrar los indicadores de lo que se está viendo."],
-  ["Demanda general (General)", "Incluía la línea de «máximo permitido» y un selector de escenario.", "Solo la demanda estimada/medida, apilada por tarifa.", "La proyección al máximo queda en la pestaña Demanda."],
-  ["Mes pico por tarifa", "Dona con la demanda del mes pico.", "Porcentaje de recibos de cada tarifa en la base.", "Ver la composición de la base de datos."],
-  ["Costo unitario por tarifa", "Incluía costos calculados o estimados.", "Solo importe o precio impreso; las tarifas sin datos no aparecen.", "Aún no hay forma de confirmar los costos estimados."],
-  ["Demanda agregada GDMTH/GDMTO", "Barras por tarifa y líneas de máximo individual.", "Una sola serie con la demanda agregada de todas las tarifas.", "Lectura más simple."],
-  ["Demanda máxima individual", "Una tarjeta por tarifa.", "Una tarjeta con selector de tarifa (General por defecto).", "Comparar cualquier tarifa en el mismo lugar."],
-  ["PDBT contra el límite", "Demanda máxima registrada.", "Demanda estimada (máxima y promedio por recibo).", "PDBT no trae lecturas confiables de kW."],
-  ["Pestaña Tarifas CFE", "Pestaña con gráficas de tarifas.", "Eliminada; sus bases están en esta sección.", "Concentrar la explicación de los cálculos."],
-  ["Gráfica de costo y consumo", "Barras de costo encima de la línea de consumo.", "Consumo al frente, costo atrás.", "Legibilidad."],
-  ["Domésticas con PDBT", "Las tarifas 1, 1A–1F y DAC aparecían por separado.", "Se muestran en un solo grupo «PDBT y domésticas»; los cálculos siguen usando la tarifa real.", "Son pocas, no miden demanda y se tratan igual que PDBT."],
-  ["Colores por tarifa", "El color dependía del orden de las tarifas en el filtro y cambiaba.", "Cada tarifa tiene un color fijo en todo el tablero (el mismo del mapa cuando existe).", "Facilitar la lectura y el seguimiento entre gráficas."],
-  ["Informe por gráfica", "La explicación estaba en notas debajo de algunas gráficas.", "Cada gráfica tiene un botón «Informe» con qué muestra y cómo se calcula.", "Tener el cálculo a la mano sin saturar las tarjetas."],
-  ["Costo y consumo por año", "Gráfica en la pestaña General.", "Eliminada.", "Se pidió quitarla del tablero."],
-  ["Datos extremos", "Un grupo grande aplastaba a los chicos; las donas escondían segmentos pequeños.", "Selector por gráfica: escala log, 100 %, separado o recortar picos. Las barras apiladas arrancan en Normal; los comparativos arrancan en log si alguna barra mide menos del 3 % de la mayor; los picos de más de 3× la mediana se recortan. Las donas pasaron a barras ordenadas con % del total.", "Que todos los datos se distingan."],
-  ["Colores por zona y zona de carga", "Los colores de zona dependían del filtro; municipios y zonas de carga iban en un solo color.", "Cada zona y cada zona de carga tienen un color fijo en todo el tablero; cada municipio usa el color de su zona.", "Seguir una misma zona entre gráficas y tablas."],
-  ["Montos exactos", "Todo en millones: $0.2 M, ejes en «$ millones» y consumo en GWh.", "Menos de un millón: la cifra exacta con centavos ($234,567.89); desde un millón: $35.54 M. Las gráficas usan pesos y kWh reales: el eje muestra marcas compactas ($250 k) y el tooltip el monto exacto.", "Saber exactamente cuánto fue cada costo."],
-  ["Periodo analizado", "Todos los meses desde 2025, incluidos los que aún no tenían todos los recibos.", "Solo de 2025-01 a 2026-02; los meses fuera del rango se descartan antes de cualquier cálculo.", "Los meses posteriores estaban incompletos y se veían bajos."],
-  ["Recibos por… según filtro", "Siempre por tarifa; con una tarifa filtrada quedaba una sola barra al 100 %.", "Usa la primera agrupación con más de una categoría: tarifa → dependencia → municipio → zona de carga. Las dependencias también tienen color fijo.", "Que la gráfica siga diciendo algo al filtrar."],
-  ["Filtros relacionados", "Cada filtro mostraba todas las opciones, aunque no hubiera recibos con la combinación.", "Cada filtro solo muestra lo que existe con los demás filtros; si un cambio deja un filtro sin recibos, se quita y se avisa.", "Evitar combinaciones vacías, como municipios fuera de la zona de carga elegida."],
-  ["Gráficas que se adaptan al filtro", "Con un filtro, algunas gráficas quedaban con una sola barra (p. ej. costo por municipio con un municipio).", "Cada gráfica cambia a la siguiente agrupación útil (tarifa, zona, zona de carga, dependencia, municipio o inmueble), avisa el cambio y no repite lo que ya muestra otra gráfica de costo; si nada aporta, se oculta. La demanda agrupada solo ofrece agrupaciones con varias categorías.", "Que cada gráfica aporte información con cualquier combinación de filtros."],
-  ["Informes más claros", "Cada informe explicaba el cálculo de forma breve.", "Cada informe dice qué muestra, qué periodo cubre (mes por mes o acumulado), cómo se calcula, qué significa cada término y qué tener en cuenta, con los valores del filtro actual.", "Que se entienda cada gráfica sin conocer el cálculo."],
-  ["Catálogo NodosP", "No existía.", "Pestaña con el catálogo del CENACE y resumen por zona de carga.", "Ligar los inmuebles a su nodo y zona de carga."],
-  ["Consumo y demanda anual (General)", "Un solo consumo y una sola demanda para todo el periodo.", "Recuadros y tabla «Resumen anual» con consumo, gasto y demanda (suma de la demanda máxima de cada recibo en el año) de cada año; sin filtros son los totales de toda la base y con filtros se marcan como «filtrado».", "Ver el consumo y la demanda anual total, y cómo cambian al filtrar."],
-  ["Pestaña Consumo", "El consumo solo aparecía en General, mezclado con el gasto.", "Pestaña propia entre General y Demanda: consumo por año, mes por mes, por categoría, año contra año y recibos de mayor consumo. Sin filtros es el consumo de toda la base; con filtros, solo el de los recibos que pasan.", "Ver el consumo por sí solo y cómo cambia al filtrar."]
-];
+/** Origen del costo de cada mes */
+const ORIGEN_COSTO: Record<Row["src"], string> = { subtotal: "Subtotal del recibo", cfe: "Tabla CFE", none: "Sin costo" };
+/** Color fijo por división tarifaria de CFE */
+const COLOR_DIV: Record<string, string> = { "Golfo Norte": "#1f6f8b", "Golfo Centro": "#c26d2c" };
 /** Dimensiones para agrupar gráficas */
-type Dim = "tarifa" | "dependencia" | "municipio" | "zona" | "zona de carga" | "inmueble";
-const DIMS: Dim[] = ["tarifa", "dependencia", "municipio", "zona", "zona de carga", "inmueble"];
+type Dim = "tarifa" | "división" | "dependencia" | "municipio" | "zona" | "zona de carga" | "inmueble";
+const DIMS: Dim[] = ["tarifa", "división", "dependencia", "municipio", "zona", "zona de carga", "inmueble"];
 /* ── Filtros relacionados entre sí ── */
-type Filtros = { dep: string; tar: string; mun: string; nodo: string };
+type Filtros = { dep: string; tar: string; div: string; mun: string; nodo: string };
 type CampoF = keyof Filtros;
-const CAMPOS_F: CampoF[] = ["dep", "tar", "mun", "nodo"];
-const NOMBRE_F: Record<CampoF, string> = { dep: "dependencia", tar: "tarifa", mun: "municipio", nodo: "zona de carga" };
-const campoF = (r: Row, k: CampoF) => (k === "dep" ? r.dep : k === "tar" ? r.tar : k === "mun" ? r.mun : r.nodo);
+const CAMPOS_F: CampoF[] = ["dep", "tar", "div", "mun", "nodo"];
+const NOMBRE_F: Record<CampoF, string> = { dep: "dependencia", tar: "tarifa", div: "división", mun: "municipio", nodo: "zona de carga" };
+const campoF = (r: Row, k: CampoF) => (k === "dep" ? r.dep : k === "tar" ? r.tar : k === "div" ? r.division : k === "mun" ? r.mun : r.nodo);
+const SIN_FILTROS: Filtros = { dep: "", tar: "", div: "", mun: "", nodo: "" };
 /** ¿El recibo pasa todos los filtros, salvo el indicado? (para calcular las opciones de ese filtro) */
 const pasaF = (r: Row, f: Filtros, salvo?: CampoF) => CAMPOS_F.every((k) => k === salvo || !f[k] || campoF(r, k) === f[k]);
 const TABS: [Tab, string][] = [["pg", "General"], ["co", "Consumo"], ["dm", "Demanda"], ["pc", "Zonas"], ["np", "Catálogo NodosP"]];
-const GK_DIM: Record<GK, Dim> = { tar: "tarifa", zona: "zona", nodo: "zona de carga", dep: "dependencia", mun: "municipio" };
-const GKS: [GK, string][] = [["tar", "Tarifa"], ["zona", "Zona"], ["nodo", "Zona de carga (NodoP)"], ["dep", "Dependencia"], ["mun", "Municipio"]];
+const GK_DIM: Record<GK, Dim> = { tar: "tarifa", div: "división", zona: "zona", nodo: "zona de carga", dep: "dependencia", mun: "municipio" };
+const GKS: [GK, string][] = [["tar", "Tarifa"], ["div", "División CFE"], ["zona", "Zona"], ["nodo", "Zona de carga (NodoP)"], ["dep", "Dependencia"], ["mun", "Municipio"]];
 
 export function Dashboard({ onBack }: { onBack: () => void }) {
   const model = useStore((s) => s.model);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [tab, setTab] = useState<Tab>("pg");
-  const [f, setF] = useState<Filtros>({ dep: "", tar: "", mun: "", nodo: "" });
+  const [f, setF] = useState<Filtros>(SIN_FILTROS);
   const [avisoF, setAvisoF] = useState("");
   const [zonaSel, setZonaSel] = useState("");
   const [gk, setGk] = useState<GK>("tar");
@@ -385,7 +384,7 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
     return { zona, zc, mun, zonas: zonas.filter((x) => rows.some((r) => r.zona === x)) };
   }, [model, of, rows]);
   /** Color del grupo según el agrupamiento elegido en Demanda */
-  const colorGrupo = (k: string) => (gkEf === "tar" ? colorTar(k) : gkEf === "zona" ? colores.zona(k) : gkEf === "nodo" ? colores.zc(k) : gkEf === "mun" ? colores.mun(k) : gkEf === "dep" ? porNombre(k, PAL_DEP) : "");
+  const colorGrupo = (k: string) => (gkEf === "tar" ? colorTar(k) : gkEf === "div" ? (COLOR_DIV[k] ?? GRIS) : gkEf === "zona" ? colores.zona(k) : gkEf === "nodo" ? colores.zc(k) : gkEf === "mun" ? colores.mun(k) : gkEf === "dep" ? porNombre(k, PAL_DEP) : "");
   const Punto = ({ c }: { c: string }) => <span className="d-dot" style={{ background: c }} aria-hidden="true" />;
   /**
    * Opciones de cada filtro según los otros filtros: solo aparecen las combinaciones que existen
@@ -398,7 +397,7 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
       const l = [...m].map(([v, s2]) => [v, s2.size] as [string, number]);
       return k === "tar" ? l.sort((a, b) => ordTar(a[0], b[0])) : l.sort((a, b) => a[0].localeCompare(b[0], "es"));
     };
-    return { dep: faceta("dep"), tar: faceta("tar"), mun: faceta("mun"), nodo: faceta("nodo") };
+    return { dep: faceta("dep"), tar: faceta("tar"), div: faceta("div"), mun: faceta("mun"), nodo: faceta("nodo") };
   }, [rows, f]);
 
   const R = useMemo(() => rows.filter((r) => pasaF(r, f)), [rows, f]);
@@ -409,12 +408,12 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
    * varias categorías. Entre gráficas del mismo dato (costo) no se repite la dimensión, para no mostrar lo mismo dos veces.
    */
   const dimF: Record<Dim, (r: Row) => string> = useMemo(() => ({
-    tarifa: (r) => r.tar, dependencia: (r) => r.dep, municipio: (r) => r.mun, zona: (r) => r.zona, "zona de carga": (r) => r.nodo,
+    tarifa: (r) => r.tar, "división": (r) => r.division, dependencia: (r) => r.dep, municipio: (r) => r.mun, zona: (r) => r.zona, "zona de carga": (r) => r.nodo,
     inmueble: (r) => `${model?.props[r.i]?.nombre ?? "Inmueble"} · RPU ${r.rpu}`
   }), [model]);
   const munDeInm = useMemo(() => { const m = new Map<string, string>(); for (const r of rows) m.set(`${model?.props[r.i]?.nombre ?? "Inmueble"} · RPU ${r.rpu}`, r.mun); return m; }, [rows, model]);
   const colorDim = (d: Dim, k: string): string =>
-    k.startsWith("Otras (") ? GRIS : d === "tarifa" ? colorTar(k) : d === "dependencia" ? porNombre(k, PAL_DEP) : d === "municipio" ? colores.mun(k)
+    k.startsWith("Otras (") ? GRIS : d === "tarifa" ? colorTar(k) : d === "división" ? (COLOR_DIV[k] ?? GRIS) : d === "dependencia" ? porNombre(k, PAL_DEP) : d === "municipio" ? colores.mun(k)
       : d === "zona" ? colores.zona(k) : d === "zona de carga" ? colores.zc(k) : colores.mun(munDeInm.get(k) ?? "");
   const catsDe = (a: Row[]) => Object.fromEntries(DIMS.map((d) => [d, new Set(a.map(dimF[d])).size])) as Record<Dim, number>;
   /** Primera dimensión de la lista con más de una categoría (y que no esté ocupada por otra gráfica del mismo dato) */
@@ -451,27 +450,27 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
     const top = porRecibo(R).sort((a, b) => b.total - a.total).slice(0, 10);
     const g = (m: Map<string, Row[]>, k: string) => m.get(k) ?? [];
     const tarsAll = [...ta.keys()].sort(ordTar), col = colorTar;
-    /** $/kWh solo con datos del recibo (importe o precio impreso); sin estimaciones */
-    const real = (a: Row[]) => { let s = 0, q2 = 0; for (const r of a) if (Number.isFinite(r.fact) && r.kwh > 0) { s += r.fact; q2 += r.kwh; } return q2 ? s / q2 : null; };
+    /** $/kWh sin IVA de los meses con precio_sin_iva (Σ subtotal ÷ Σ kWh); sin estimaciones */
+    const real = precioDe;
     const tarsReal = tarsAll.filter((t) => real(g(ta, t)) !== null);
     const cats = catsDe(R);
 
-    // Demanda general aproximada: en cada mes, Σ de la demanda (medida o estimada) de cada RPU; se reporta el mes más alto
-    const dMes = mons.map((k) => sumRpuMes(g(pm, k), (r) => r.kwEst));
-    const iPico = dMes.reduce((b, y, i) => (y > dMes[b] ? i : b), 0);
+    // Demanda máxima de cada inmueble (su mes más alto); con eso se describe el tamaño de los inmuebles, sin sumar
+    const dems = demandas(R);
+    const tipMes = mons.map((m) => mediana(g(pm, m).filter((r) => r.kwEst > 0).map((r) => r.kwEst)));
+    const iPico = tipMes.reduce((b, y, i) => (y > tipMes[b] ? i : b), 0);
 
-    // Resumen anual: consumo y gasto sumados por año; demanda anual = Σ de la demanda máxima de cada recibo (RPU) en el año (medida o estimada)
+    // Resumen anual: consumo y gasto sumados por año; demanda del año = la demanda máxima del inmueble más grande en ese año
     const anual = [...new Set(mons.map((k) => k.slice(0, 4)))].map((y) => {
-      const ix = mons.map((k, i) => (k.startsWith(y) ? i : -1)).filter((i) => i >= 0), dm = ix.map((i) => dMes[i]);
-      const a = R.filter((r) => r.per.startsWith(y));
-      return { y, meses: ix.length, kwh: sum(a, kwh), gasto: sum(a, tot), dem: sumRpuMes(a, (r) => r.kwEst), prom: dm.length ? dm.reduce((s2, x) => s2 + x, 0) / dm.length : 0 };
+      const ix = mons.filter((k) => k.startsWith(y)), a = R.filter((r) => r.per.startsWith(y)), dy = demandas(a);
+      return { y, meses: ix.length, kwh: sum(a, kwh), gasto: sum(a, tot), dem: Math.max(0, ...dy.map((x) => x.kw)), tipica: mediana(dy.map((x) => x.kw)) };
     });
 
     // Dimensiones de cada gráfica según los filtros
     const dimG = elegir(cats, ["tarifa", "zona", "dependencia", "municipio", "zona de carga"]);
     // Recibos por inmueble no aporta (cada inmueble tiene un recibo), por eso «inmueble» no está en esta lista
     const dimP = elegir(cats, ["tarifa", "dependencia", "municipio", "zona de carga"]);
-    const costo = repartir(cats, [["c2", ["tarifa", "zona de carga", "zona", "dependencia"]], ["c7", ["dependencia", "municipio", "tarifa", "zona de carga"]]]);
+    const costo = repartir(cats, [["c2", ["tarifa", "división", "zona de carga", "zona", "dependencia"]], ["c7", ["dependencia", "municipio", "tarifa", "zona de carga"]]]);
     /*
      * «Costo por municipio»: si el filtro deja un solo municipio (o la dimensión ya la usa otra gráfica), pasa a zona de carga;
      * si tampoco, se vuelve «Costo mensual por …» (tarifa, dependencia, zona): agrega el tiempo, que no tienen las otras gráficas de costo.
@@ -479,14 +478,40 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
      */
     const c6Rank = elegir(cats, ["municipio", "zona de carga"], new Set([costo.c2, costo.c7].filter(Boolean) as Dim[]));
     const c6Mes = c6Rank ? null : elegir(cats, ["tarifa", "dependencia", "zona", "zona de carga"]);
-    const dimU = elegir(cats, ["tarifa", "zona", "dependencia", "municipio"]);
+    const dimU = elegir(cats, ["tarifa", "división", "zona", "dependencia", "municipio"]);
     const dimZ = elegir(cats, ["zona", "municipio", "tarifa", "dependencia"]), dimZU = elegir(cats, ["zona", "municipio", "zona de carga", "tarifa"]);
-    const kwMes = (x: Row[]) => sumRpuMes(x, (r) => r.kwEst), gasto = (x: Row[]) => sum(x, tot);
+    const gasto = (x: Row[]) => sum(x, tot);
     const real2 = (x: Row[]) => real(x) ?? 0;
 
     const charts: Record<string, Cfg | null> = {
-      cG: dimG && (() => { const k = apiladoMes(R, dimG, mons, kwMes, "kw", { title: { display: true, text: "kW (Σ de la demanda de cada RPU)" } });
-        k.options.plugins = { tooltip: { callbacks: { label: (y: any) => `${y.dataset.label}: ${KW(y.raw ?? 0)}`, footer: (it: any[]) => "Total: " + KW(it.reduce((s2, y) => s2 + (y.raw ?? 0), 0)) } } }; return k; })(),
+      /*
+       * Demanda por mes: una línea por categoría con la demanda típica (mediana) de sus inmuebles ese mes, para ver
+       * qué mes pide más. No se suman inmuebles; la línea punteada es el inmueble más grande de cada mes (de todos).
+       */
+      cDM: dimG && (() => {
+        const gm = by(R.filter((r) => r.kwEst > 0), (r) => dimF[dimG](r) + "|" + r.per);
+        const tam = [...by(R, dimF[dimG])].map(([k, a]) => [k, nRec(a)] as [string, number]).sort((a, b) => b[1] - a[1]).slice(0, 8).map((x) => x[0]);
+        const cats2 = dimG === "tarifa" ? [...tam].sort(ordTar) : tam;
+        return { type: "line", data: { labels: mons, datasets: [
+          ...cats2.map((k) => ({ label: `${k} · típica`, fmt: "kw", borderColor: colorDim(dimG, k), backgroundColor: colorDim(dimG, k), borderWidth: 2.5, pointRadius: 3, tension: 0.3, spanGaps: true,
+            data: mons.map((m) => { const a = gm.get(k + "|" + m); return a?.length ? mediana(a.map((r) => r.kwEst)) : null; }) })),
+          { label: "Inmueble más grande del mes", fmt: "kw", borderColor: PAL[theme].mut, backgroundColor: PAL[theme].mut, borderDash: [6, 4], borderWidth: 1.5, pointRadius: 2, tension: 0.2,
+            data: mons.map((m) => { const a = g(pm, m).filter((r) => r.kwEst > 0); return a.length ? Math.max(...a.map((r) => r.kwEst)) : null; }) }] },
+          options: { interaction: { mode: "index", intersect: false }, scales: { x: XT, y: { title: { display: true, text: "kW" } } } } } as Cfg;
+      })(),
+      // Tamaño de los inmuebles: cuántos inmuebles hay en cada rango de demanda máxima, apilados por categoría
+      cG: dimG && (() => {
+        const cuenta = new Map<string, number[]>();
+        for (const x of dems) { const k = dimF[dimG](x.r), l = cuenta.get(k) ?? Array(ETQ_RANGO.length).fill(0); l[rangoKw(x.kw)]++; cuenta.set(k, l); }
+        const orden = [...cuenta.keys()].sort(dimG === "tarifa" ? ordTar : (a, b) => cuenta.get(b)!.reduce((s2, n) => s2 + n, 0) - cuenta.get(a)!.reduce((s2, n) => s2 + n, 0));
+        const prin = orden.slice(0, orden.length > 8 ? 7 : 8), resto = orden.slice(prin.length);
+        const ds = prin.map((k) => ({ label: k, data: cuenta.get(k)! }));
+        if (resto.length) ds.push({ label: `Otras (${resto.length})`, data: ETQ_RANGO.map((_, i) => resto.reduce((s2, k) => s2 + cuenta.get(k)![i], 0)) });
+        return { type: "bar", data: { labels: ETQ_RANGO, datasets: ds.map((x) => ({ ...x, stack: "s", backgroundColor: colorDim(dimG, x.label) })) },
+          options: { interaction: { mode: "index", intersect: false },
+            plugins: { tooltip: { callbacks: { label: (y: any) => `${y.dataset.label}: ${N(y.raw ?? 0)} inmuebles`, footer: (it: any[]) => "Total: " + N(it.reduce((s2, y) => s2 + (y.raw ?? 0), 0)) + " inmuebles" } } },
+            scales: { x: { stacked: true, title: { display: true, text: "Demanda máxima del inmueble" } }, y: { stacked: true, title: { display: true, text: "Inmuebles" } } } } } as Cfg;
+      })(),
       cP: dimP && ranking(R, dimP, nRec, (x) => N(x) + " recibos", "Recibos (RPU)"),
       c1: barLine(mons, mons.map((k) => sum(g(pm, k), tot)), mons.map((k) => sum(g(pm, k), kwh)), c),
       c2: costo.c2 && ranking(R, costo.c2, gasto, P, "Costo", 15, EJE_PESOS),
@@ -502,13 +527,18 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
       c9: dimZU && ranking(R, dimZU, real2, (x) => P(x) + " /kWh", "$/kWh", 15)
     };
     const altoDe = (k: string) => { const cfg = charts[k]; return Math.max(300, (cfg?.data.labels.length ?? 1) * 22 + 60); };
-    const conCosto = R.filter((r) => r.src !== "none").length, kCosto = sum(R, kwc);
-    const orig = (["recibo", "precio", "cfe", "none"] as Row["src"][]).map((k) => { const a = R.filter((r) => r.src === k); return { k, n: a.length, kwh: sum(a, kwh), g: sum(a, tot) }; });
-    const atip = R.filter((r) => r.atipico).sort((a, b) => b.fact / (b.kwh || 1) - a.fact / (a.kwh || 1));
+    const conCosto = R.filter((r) => r.src !== "none").length, kCosto = sum(R.filter((r) => r.src !== "none"), kwh);
+    const orig = (["subtotal", "cfe", "none"] as Row["src"][]).map((k) => { const a = R.filter((r) => r.src === k); return { k, n: a.length, kwh: sum(a, kwh), g: sum(a, tot) }; });
+    // Meses sin precio sin IVA, por motivo (precio_origen); su kWh sigue en el consumo y su subtotal, si existe, en el gasto
+    const sinPrecio = [...by(R.filter((r) => !conPrecio(r) && (r.kwh > 0 || r.lecEst || Number.isFinite(r.sub))), (r) => r.origen)]
+      .map(([k, a]) => ({ k, txt: MOTIVO_SIN_PRECIO[k] ?? k, n: a.length, kwh: sum(a, kwh), g: sum(a, tot) })).sort((a, b) => b.n - a.n);
+    const lecEst = R.filter((r) => r.lecEst), consAt = R.filter((r) => r.consAt || r.kwhAt);
+    // Recibos que cambiaron de tarifa dentro del periodo (la tarifa ahora viene de cada mes del historial)
+    const cambioTar = [...by(R, (r) => r.rpu)].filter(([, a]) => new Set(a.map((r) => r.tarCFE)).size > 1).length;
     const zTop = [...ca].map(([k, a]) => [k, sum(a, tot)] as [string, number]).sort((a, b) => b[1] - a[1])[0];
     const dims = { cG: dimG, cP: dimP, c2: costo.c2, c3: dimU, c6: c6Rank ?? c6Mes, c6Mes: !c6Rank && !!c6Mes, c7: costo.c7, c8: dimZ, c9: dimZU };
-    return { dims, cats, altoDe, recDim: dimP ?? "tarifa", recN: dimP ? cats[dimP] : 0, recAlto: altoDe("cP"), dGen: dMes[iPico] ?? 0, dGenMes: mons[iPico] ?? "—", anual, T: sum(R, tot), K: sum(R, kwh),
-      charts, ca, cn, top, conCosto, kCosto, orig, atip, zTop, sinReal: tarsAll.filter((t) => !tarsReal.includes(t)), tarsAll, col };
+    return { dims, cats, altoDe, recDim: dimP ?? "tarifa", recN: dimP ? cats[dimP] : 0, recAlto: altoDe("cP"), dems, demMax: Math.max(0, ...dems.map((x) => x.kw)), demTip: mediana(dems.map((x) => x.kw)), mesPico: mons[iPico] ?? "—", tipPico: tipMes[iPico] ?? 0, anual, T: sum(R, tot), K: sum(R, kwh),
+      charts, ca, cn, top, conCosto, kCosto, orig, sinPrecio, lecEst, consAt, cambioTar, zTop, sinReal: tarsAll.filter((t) => !tarsReal.includes(t)), tarsAll, col };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [R, theme, colores, dimF, munDeInm]);
 
@@ -530,8 +560,22 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
     const cmp: Cfg | null = anios.length > 1 ? { type: "line", data: { labels: MES_CORTO, datasets: anios.map((y, i) => ({ label: y, fmt: "kwh", borderColor: c[i % c.length], backgroundColor: c[i % c.length], borderWidth: 2.5, pointRadius: 3, tension: 0.3, spanGaps: false,
       data: MES_CORTO.map((_, m) => { const k = `${y}-${String(m + 1).padStart(2, "0")}`; return pm.has(k) ? kwhMes(pm.get(k) ?? []) : null; }) })) },
       options: { interaction: { mode: "index", intersect: false }, scales: { x: {}, y: ejeKwh } } } : null;
+    // Consumo (barras) contra demanda general aproximada (línea) mes a mes; el factor de carga del mes va en el tooltip
+    const kwhs = mons.map((k) => kwhMes(pm.get(k) ?? []));
+    // Demanda típica del mes = mediana de la demanda de los inmuebles ese mes (no se suman: la demanda es el tamaño de cada uno)
+    const dem = mons.map((k) => mediana((pm.get(k) ?? []).filter((r) => r.kwEst > 0).map((r) => r.kwEst)));
+    // Factor de carga del mes, ponderado: Σ kWh / (horas · Σ kW) de los inmuebles con demanda ese mes
+    const fcMes = mons.map((k) => { const a = (pm.get(k) ?? []).filter((r) => r.kwEst > 0 && !r.lecEst), [y, m] = k.split("-").map(Number), h = 24 * new Date(y, m, 0).getDate(), w = sum(a, (r) => r.kwEst); return w > 0 ? sum(a, kwh) / (h * w) : NaN; });
+    const cd: Cfg = { type: "bar", data: { labels: mons, datasets: [
+        { type: "line", label: "Demanda típica por inmueble", fmt: "kw", data: dem, borderColor: c[1], backgroundColor: c[1], borderWidth: 2.5, pointRadius: 2, tension: 0.3, yAxisID: "y2", order: 1 },
+        { type: "bar", label: "Consumo", fmt: "kwh", data: kwhs, backgroundColor: c[0], yAxisID: "y", order: 2 }] },
+      options: { interaction: { mode: "index", intersect: false },
+        plugins: { tooltip: { callbacks: { label: (y: any) => `${y.dataset.label}: ${fmtValor(y.dataset, y.raw ?? 0)}`,
+          footer: (it: any[]) => { const f = fcMes[it[0]?.dataIndex]; return Number.isFinite(f) ? `Factor de carga: ${(f * 100).toFixed(1)} %` : ""; } } } },
+        scales: { x: XT, y: { ...EJE_KWH, title: { display: true, text: "Consumo (kWh)" } },
+          y2: { ...EJE_KWH, position: "right", grid: { display: false }, title: { display: true, text: "Demanda típica (kW)" } } } } };
     const top = porRecibo(R).sort((a, b) => b.kwh - a.kwh).slice(0, 10);
-    return { dimC, dimR, mensual, ranking2, cmp, top, rpu: nRec(R) };
+    return { dimC, dimR, mensual, ranking2, cmp, cd, top, rpu: nRec(R) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [R, theme, colores, dimF, munDeInm, v]);
 
@@ -543,35 +587,41 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
   const d = useMemo(() => {
     const c = PAL[theme].c, col = v.col;
     const am = by(R, (r) => r.per), ams = keys(am);
-    // Misma gráfica que en General (demanda por tarifa) más la línea del total con PDBT y domésticas a su máximo permitido
-    const cG = v.charts.cG;
-    const ch1: Cfg | null = cG && { ...cG, data: { ...cG.data, datasets: [
-      { type: "line", label: "Total si PDBT y domésticas usaran su máximo permitido", order: 1,
-        data: ams.map((k) => sumRpuMes(am.get(k)!, (r) => limiteKw(r.tarCFE) || r.kwEst)),
-        borderColor: PAL[theme].mut, backgroundColor: PAL[theme].mut, borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0.2 },
-      ...cG.data.datasets.map((x: any) => ({ ...x, type: "bar", order: 2 }))] },
-      options: { ...cG.options, plugins: { tooltip: { callbacks: { label: (y: any) => `${y.dataset.label}: ${KW(y.raw ?? 0)}`,
-        footer: (it: any[]) => "Total estimado: " + KW(it.filter((y) => y.dataset.type !== "line").reduce((s2, y) => s2 + (y.raw ?? 0), 0)) } } } } };
+    // ¿La demanda máxima corresponde a la contratada (si existe) o al rango de su tarifa?
+    const dems = v.dems, conContr = dems.filter((x) => x.tipoRef === "contr").length;
+    const tipoRef: "contr" | "tarifa" = conContr >= dems.length / 2 && conContr > 0 ? "contr" : "tarifa";
+    const ORDEN_EST: Estado[] = ["arriba", "cerca", "bien", "holgada", "sinref"];
+    const cnt = ORDEN_EST.map((e) => [e, dems.filter((x) => x.estado === e)] as [Estado, Dem[]]).filter(([, a]) => a.length);
+    const etqE = (x: Dem) => ETQ_ESTADO[x.tipoRef][x.estado];
+    const cmpCfg: Cfg | null = dems.length ? { type: "bar", data: { labels: cnt.map(([e]) => ETQ_ESTADO[tipoRef][e]), datasets: [{ label: "Inmuebles", data: cnt.map(([, a]) => a.length), backgroundColor: cnt.map(([e]) => COLOR_ESTADO[e]) }] },
+      options: { indexAxis: "y", plugins: { legend: { display: false }, tooltip: { callbacks: { label: (y: any) => `${N(y.raw)} inmuebles (${PCT(y.raw, dems.length)})` } } } } } : null;
+    const revisar = dems.filter((x) => x.estado === "arriba" || x.estado === "cerca" || x.estado === "holgada").sort((a, b) => (ORDEN_EST.indexOf(a.estado) - ORDEN_EST.indexOf(b.estado)) || ((b.uso || 0) - (a.uso || 0)));
+    const cmp = { cfg: cmpCfg, tipoRef, conContr, revisar, etqE, arriba: dems.filter((x) => x.estado === "arriba").length };
 
     // Demanda máxima individual: un RPU; medida si la trae, estimada si no
     const pool = (tsel ? R.filter((r) => r.tar === tsel) : R).filter((r) => r.kwEst > 0);
     const porR = [...by(pool, (r) => r.rpu)].map(([rpu, a]) => { const m = a.reduce((b, r) => (r.kwEst > b.kwEst ? r : b), a[0]); return { rpu, m, n: a.length, med: a.some((r) => r.kwSrc === "medida") }; })
       .sort((a, b) => b.m.kwEst - a.m.kwEst);
-    const indiv = { max: porR[0]?.m.kwEst ?? 0, pico: porR[0]?.m ?? null, prom: porR.length ? porR.reduce((s2, x) => s2 + x.m.kwEst, 0) / porR.length : 0, n: porR.length,
+    const refDe = new Map(dems.map((x) => [x.rpu, x]));
+    const indiv = { max: porR[0]?.m.kwEst ?? 0, pico: porR[0]?.m ?? null, prom: mediana(porR.map((x) => x.m.kwEst)), n: porR.length, refDe,
       medidos: porR.filter((x) => x.med).length, top: porR.slice(0, 10) };
 
     const D = R.filter((r) => TAR_DEMANDA.includes(r.tar) && r.kwOk);
-    const gf: Record<GK, (r: Row) => string> = { tar: (r) => r.tar, zona: (r) => r.zona, nodo: (r) => r.nodo, dep: (r) => r.dep, mun: (r) => r.mun };
+    const gf: Record<GK, (r: Row) => string> = { tar: (r) => r.tar, div: (r) => r.division, zona: (r) => r.zona, nodo: (r) => r.nodo, dep: (r) => r.dep, mun: (r) => r.mun };
+    // Por grupo no se suman demandas: se describe el tamaño típico (mediana) y el inmueble más grande
     const grupos = [...by(R.filter((r) => r.kwEst > 0), gf[gkEf])].map(([k, a]) => {
-      const mes = new Map<string, Row[]>(); for (const r of a) { const l = mes.get(r.per); if (l) l.push(r); else mes.set(r.per, [r]); }
-      const horas = sum(a.filter((r) => r.kwSrc === "medida"), (r) => r.kw * 24 * r.dias);
-      return { k, n: distinct(a, (r) => r.i), rec: nRec(a), kwMax: Math.max(0, ...a.map((r) => r.kwEst)), pico: Math.max(0, ...[...mes.values()].map((l) => sumRpuMes(l, (r) => r.kwEst))),
+      const dg = demandas(a), horas = sum(a.filter((r) => r.kwSrc === "medida"), (r) => r.kw * 24 * r.dias);
+      return { k, n: distinct(a, (r) => r.i), rec: nRec(a), kwMax: Math.max(0, ...dg.map((x) => x.kw)), tip: mediana(dg.map((x) => x.kw)),
+        fuera: dg.filter((x) => x.estado === "arriba" || x.estado === "holgada").length,
         est: PCT(a.filter((r) => r.kwSrc === "estimada").length, a.length), fc: horas ? sum(a.filter((r) => r.kwSrc === "medida"), kwh) / horas : 0,
         cDem: sum(a, (r) => (r.partes ? r.partes.distribucion + r.partes.capacidad : 0)), tars: [...new Set(a.map((r) => r.tar))].sort(ordTar).join(", ") };
-    }).sort((x, y) => y.pico - x.pico);
+    }).sort((x, y) => y.kwMax - x.kwMax);
     const g15 = grupos.slice(0, 15);
-    const ch2: Cfg = { type: "bar", data: { labels: g15.map((x) => x.k), datasets: [{ label: "Pico mensual agregado (kW)", data: g15.map((x) => x.pico), backgroundColor: g15.map((x) => (gkEf === "tar" ? colorTar(x.k) : gkEf === "zona" ? colores.zona(x.k) : gkEf === "nodo" ? colores.zc(x.k) : gkEf === "mun" ? colores.mun(x.k) : gkEf === "dep" ? porNombre(x.k, PAL_DEP) : c[0])) }] },
-      options: { indexAxis: "y", plugins: { legend: { display: false } } } };
+    const colG = (k: string) => (gkEf === "tar" ? colorTar(k) : gkEf === "div" ? (COLOR_DIV[k] ?? GRIS) : gkEf === "zona" ? colores.zona(k) : gkEf === "nodo" ? colores.zc(k) : gkEf === "mun" ? colores.mun(k) : gkEf === "dep" ? porNombre(k, PAL_DEP) : c[0]);
+    const ch2: Cfg = { type: "bar", data: { labels: g15.map((x) => x.k), datasets: [
+      { label: "Demanda típica por inmueble (kW)", fmt: "kw", data: g15.map((x) => x.tip), backgroundColor: g15.map((x) => colG(x.k)) },
+      { label: "Inmueble más grande (kW)", fmt: "kw", data: g15.map((x) => x.kwMax), backgroundColor: g15.map((x) => colG(x.k) + "66") }] },
+      options: { indexAxis: "y", interaction: { mode: "index", intersect: false } } };
 
     const PD = R.filter((r) => r.tar === GRUPO_BT), ppm = by(PD, (r) => r.per), pms = keys(ppm);
     const ch3: Cfg = { type: "bar", data: { labels: pms, datasets: [
@@ -581,39 +631,40 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
       options: { interaction: { mode: "index", intersect: false }, scales: { x: XT, y: { title: { display: true, text: "kW" } } } } };
     const exc = porRecibo(PD.filter((r) => r.kwOrig > limiteKw(r.tarCFE)).map((r) => ({ ...r, kw: r.kwOrig }))).sort((a, b) => b.kwMax - a.kwMax);
 
-    /* Proyección PDBT y domésticas al máximo permitido */
-    const L = R.filter((r) => limiteKw(r.tarCFE) > 0), lm = by(L, (r) => r.per), lms = keys(lm), lt = [...new Set(L.map((r) => r.tar))].sort(ordTar), ltm = by(L, (r) => r.tar + "|" + r.per);
-    const chL: Cfg = { type: "bar", data: { labels: lms, datasets: [
-      { type: "line", label: "Proyección: todos al máximo permitido", data: lms.map((k) => sumRpuMes(lm.get(k)!, (r) => limiteKw(r.tarCFE))), borderColor: c[0], backgroundColor: c[0], borderWidth: 2.5, pointRadius: 2, tension: 0.2, order: 1 },
-      ...lt.map((t) => ({ type: "bar", label: `${t} · estimada`, stack: "s", backgroundColor: col(t), order: 2, data: lms.map((k) => sumRpuMes(ltm.get(t + "|" + k) ?? [], (r) => r.kwEst)) }))] },
-      options: { interaction: { mode: "index", intersect: false }, scales: { x: { stacked: true, ...XT }, y: { stacked: true, title: { display: true, text: "kW" } } } } };
+    /* PDBT y domésticas: qué tanto de su límite usa cada inmueble (sin sumar inmuebles) */
+    const L = R.filter((r) => limiteKw(r.tarCFE) > 0), dL = demandas(L).map((x) => ({ ...x, pct: x.kw / limiteKw(x.r.tarCFE) }));
+    const BANDAS_USO = [["Menos de 25 %", 0.25], ["25 a 50 %", 0.5], ["50 a 80 %", 0.8], ["80 a 100 %", 1.0001], ["Arriba del límite", Infinity]] as const;
+    const banda = (p2: number) => BANDAS_USO.findIndex(([, t]) => p2 < t);
+    const COL_USO = ["#4f86c6", "#3f9a7f", "#8fb04a", "#d08c2e", "#c0284e"];
+    const chL: Cfg = { type: "bar", data: { labels: BANDAS_USO.map((b) => b[0]), datasets: [{ label: "Inmuebles", data: BANDAS_USO.map((_, i) => dL.filter((x) => banda(x.pct) === i).length), backgroundColor: COL_USO }] },
+      options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (y: any) => `${N(y.raw)} inmuebles (${PCT(y.raw, dL.length)})` } } },
+        scales: { x: { title: { display: true, text: "Demanda máxima como % del límite de su tarifa" } }, y: { title: { display: true, text: "Inmuebles" } } } } };
     const proy = [...by(L, gf[gkEf])].map(([k, a]) => {
-      const est = sumRpuMes(a, (r) => r.kwEst), pot = sumRpuMes(a, (r) => limiteKw(r.tarCFE));
-      return { k, tars: [...new Set(a.map((r) => r.tar))].sort(ordTar).join(", "), n: nRec(a), est, pot, hol: pot - est, uso: pot ? est / pot : 0 };
-    }).sort((y, z2) => z2.pot - y.pot);
-    const Lest = sumRpuMes(L, (r) => r.kwEst), Lpot = sumRpuMes(L, (r) => limiteKw(r.tarCFE));
+      const dg = demandas(a).map((x) => x.kw / limiteKw(x.r.tarCFE));
+      return { k, tars: [...new Set(a.map((r) => r.tar))].sort(ordTar).join(", "), n: dg.length, tip: mediana(dg), cerca: dg.filter((p2) => p2 >= 0.8 && p2 <= 1).length, arriba: dg.filter((p2) => p2 > 1).length };
+    }).sort((y, z2) => z2.n - y.n);
+    const uso = { n: dL.length, tip: mediana(dL.map((x) => x.kw)), max: Math.max(0, ...dL.map((x) => x.kw)), pctTip: mediana(dL.map((x) => x.pct)),
+      cerca: dL.filter((x) => x.pct >= 0.8 && x.pct <= 1).length, arriba: dL.filter((x) => x.pct > 1).length };
 
     const conKw = R.filter((r) => r.hasKw), fix = conKw.filter((r) => r.kwFix);
-    const motivos = [...by(fix, (r) => r.kwFix.replace(/ · .*/, "").replace(/^[\d.,]+ veces su mediana.*/, `${FACTOR_ATIPICO}× o más su mediana sin respaldo del consumo`))]
+    const motivos = [...by(fix, (r) => r.kwFix.replace(/ · .*/, "").replace(/^[\d.,]+ veces su patrón.*también salió.*/, `${FACTOR_ATIPICO}× o más su patrón, con el consumo también fuera de patrón`).replace(/^[\d.,]+ veces su patrón.*/, `${FACTOR_ATIPICO}× o más su patrón sin respaldo del consumo`))]
       .map(([k, a]) => ({ k, n: a.length, rep: a.filter((r) => r.kwOk).length, rpu: nRec(a) })).sort((a, b) => b.n - a.n);
     const val = { meses: conKw.length, rpu: nRec(conKw), fix: fix.sort((a, b) => Math.abs(b.kwOrig - b.kw) - Math.abs(a.kwOrig - a.kw)), motivos,
       corr: fix.filter((r) => r.kwOk).length, desc: fix.filter((r) => !r.kwOk).length };
     const ref = referenciaFc(R), E = R.filter((r) => r.kwSrc === "estimada"), em = by(E, (r) => r.per), ems = keys(em);
-    const pk = (fn: (r: Row) => number) => Math.max(0, ...ems.map((k) => sumRpuMes(em.get(k)!, fn)));
-    const est = { ref, n: nRec(E), meses: E.length, pico: pk((r) => r.kwEst), bajo: pk((r) => kwPorConsumo(r, ref.fcAlto)), alto: pk((r) => kwPorConsumo(r, ref.fcBajo)),
+    // Demanda estimada típica: mediana de la demanda máxima estimada de cada inmueble; el rango usa los cuartiles del FC
+    const tipE = (fn: (r: Row) => number) => mediana([...by(E, (r) => r.rpu).values()].map((a) => Math.max(...a.map(fn))));
+    void ems; void em;
+    const est = { ref, n: nRec(E), meses: E.length, pico: tipE((r) => r.kwEst), max: Math.max(0, ...E.map((r) => r.kwEst)), bajo: tipE((r) => kwPorConsumo(r, ref.fcAlto)), alto: tipE((r) => kwPorConsumo(r, ref.fcBajo)),
       tar: [...new Set(E.map((r) => r.tar))].sort(ordTar).join(", ") };
-    return { ch1, ch2, ch3, chL, indiv, grupos, D, PD, exc, L, Lest, Lpot, proy, val, est, medidos: nRec(R.filter((r) => r.kwSrc === "medida")) };
+    return { cmp, ch2, ch3, chL, uso, indiv, grupos, D, PD, exc, L, proy, val, est, medidos: nRec(R.filter((r) => r.kwSrc === "medida")) };
   }, [R, theme, gkEf, tsel, v, colores]);
 
-  /* ── Bases de tarifas CFE (para la pestaña de metodología) ── */
+  /* ── Subtotal del recibo contra el cálculo con la tabla oficial de CFE (tarifas con demanda) ── */
   const t = useMemo(() => {
-    const G = R.filter((r) => r.tar === "GDMTH" && Number.isFinite(r.fact) && r.partes);
-    const vig = Object.entries(of?.tar?.tarifas ?? {}).flatMap(([tar, o]) => o.grupos.map((g) => {
-      const ms = Object.keys(g.meses).sort(), ult = ms[ms.length - 1] ?? "";
-      return { tar, g, ult, c: g.meses[ult] ?? {} };
-    })).sort((a, b) => ordTar(a.tar, b.tar) || a.g.division.localeCompare(b.g.division));
-    return { vig, cols: COLS_CARGO.filter(([k]) => vig.some((x) => x.c[k])), fact: sum(G, (r) => r.fact), calc: sum(G, (r) => r.calc), nG: G.length };
-  }, [R, of]);
+    const G = R.filter((r) => TAR_DEMANDA.includes(r.tarCFE) && Number.isFinite(r.sub) && r.partes && r.kwh > 0);
+    return { fact: sum(G, (r) => r.sub), calc: sum(G, (r) => r.calc), nG: G.length };
+  }, [R]);
 
   /* ── Catálogo NodosP ── */
   const n = useMemo(() => {
@@ -626,7 +677,7 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
     const res = zcs.map((z2) => {
       const ns = nodos.filter((x) => x.zonaCarga === z2), a = rn.get(z2) ?? [];
       return { z: z2, nn: ns.length, muns: [...new Set(ns.map((x) => x.municipio).filter(Boolean))].sort(), divs: [...new Set(ns.map((x) => x.division ?? "").filter(Boolean))].sort().join(", "),
-        inm: distinct(a, (r) => r.i), kwh: sum(a, kwh), gasto: sum(a, tot), u: unit(a), dem: sumMaxInm(a.filter((r) => TAR_DEMANDA.includes(r.tar))) };
+        inm: distinct(a, (r) => r.i), kwh: sum(a, kwh), gasto: sum(a, tot), u: unit(a), dem: Math.max(0, ...demandas(a).map((x) => x.kw)), demTip: mediana(demandas(a).map((x) => x.kw)) };
     });
     const conInm = res.filter((x) => x.inm);
     // Costo y consumo por zona de carga; si el filtro deja una sola, por municipio, tarifa o dependencia
@@ -670,153 +721,11 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
   };
   /** Aviso cuando una gráfica cambió de agrupación por los filtros */
   const Nota = ({ nat, act }: { nat: Dim; act: Dim | null }) => !act || act === nat ? null
-    : <p className="d-mut d-nota">Agrupada por {act}: {v.cats[nat] <= 1 ? `con los filtros actuales solo hay ${nat === "zona" || nat === "tarifa" || nat === "dependencia" || nat === "zona de carga" ? "una" : "un"} ${nat}` : "para no repetir lo que ya muestra otra gráfica de costo"}.</p>;
+    : <p className="d-mut d-nota">Agrupada por {act}: {v.cats[nat] <= 1 ? `con los filtros actuales solo hay ${nat === "zona" || nat === "tarifa" || nat === "división" || nat === "dependencia" || nat === "zona de carga" ? "una" : "un"} ${nat}` : "para no repetir lo que ya muestra otra gráfica de costo"}.</p>;
   const OPC = ({ l }: { l: [string, number][] }) => <>{l.map(([x]) => <option key={x} value={x}>{x}</option>)}</>;
 
-  if (!model) return <div className="dash" data-theme={theme}><main><h1>Recibos de CFE</h1><p className="d-sub">Cargando…</p></main></div>;
-
-  const { T, K } = v;
-  const periodo = rows.length ? `${rows.reduce((m, r) => (r.per < m ? r.per : m), rows[0].per)} a ${rows.reduce((m, r) => (r.per > m ? r.per : m), rows[0].per)}` : "";
-  const costoProm = v.kCosto ? T / v.kCosto : 0;
-  /** Sin filtros los recuadros muestran el total de toda la base; con algún filtro lo marcan */
-  const hayF = CAMPOS_F.some((k) => f[k]), etqF = hayF ? " · filtrado" : "";
-  const zT = sum(z.cs, tot), zK = sum(z.cs, kwh);
-  const dif = t.fact ? ((t.calc - t.fact) / t.fact) * 100 : 0;
-  const ref = d.est.ref;
-  /* ── Informes de cada gráfica: qué muestra, qué periodo cubre, cómo se calcula y cómo leerla ── */
-  const persF = [...new Set(R.map((r) => r.per))].sort();
-  const recMes = persF.map((p) => R.filter((r) => r.per === p).length), medRec = [...recMes].sort((a, b) => a - b)[recMes.length >> 1] ?? 0;
-  const incompletos = persF.filter((_, i) => recMes[i] < medRec * 0.5);
-  const PER = persF.length ? <>{persF[0]} a {persF[persF.length - 1]} ({persF.length} meses)</> : <>sin datos</>;
-  const T3 = ({ t }: { t: string }) => <h3 className="d-inf-t">{t}</h3>;
-  const FILTROS = <p>Todo se calcula con los recibos que dejan pasar los filtros de arriba (dependencia, tarifa, municipio y zona de carga).</p>;
-  const AVISO_MESES = incompletos.length > 0
-    ? <p><b>Meses incompletos:</b> {incompletos.join(", ")} tienen menos de la mitad de los recibos de un mes normal (aún no se cargan todos), así que se ven más bajos de lo real.</p> : null;
-  const FUENTES_COSTO = <ul>
-    <li><b>Importe del recibo</b>, cuando el historial lo trae (recibos formato 2).</li>
-    <li><b>kWh × precio impreso</b>, cuando no trae importe pero sí el precio por kWh impreso en el recibo (formato 1).</li>
-    <li><b>Tabla oficial de CFE</b> de su división y mes, cuando no hay ni importe ni precio. Los recibos GDMTH siempre se costean con la tabla de CFE.</li>
-  </ul>;
-  const DEM_RECIBO = <ul>
-    <li><b>Recibos con lectura de kW</b> (GDMTH, GDMTO, GDBT…): la demanda máxima que trae el recibo ese mes, ya validada (si venía con un error evidente se reemplazó; ver la última tarjeta de la pestaña Demanda).</li>
-    <li><b>Recibos sin lectura</b> ({GRUPO_BT} y meses sin dato): se estima con su consumo, kWh del mes / (24 h · días del mes · FC). El FC (factor de carga) es {ref.fc.toFixed(3)}, la mediana de {N(ref.n)} {ref.origen}. En {GRUPO_BT} nunca pasa de {PDBT_MAX_KW} kW.</li>
-  </ul>;
-  const DEF_AGREGADA = <p><b>Demanda agregada</b> = la suma de las demandas máximas de todos los recibos en un mismo mes. Responde «si juntáramos todos los servicios, cuántos kW sumarían sus picos de ese mes».</p>;
-  const DEF_NO_COINC = <p><b>Ojo, es una suma no coincidente:</b> cada recibo marca su pico en un día y hora distintos, así que nunca están todos al máximo al mismo tiempo. La demanda simultánea real de toda la base es menor que esta suma; sirve para comparar meses, tarifas y grupos, no como la carga instantánea total.</p>;
-  const PROMEDIO_PONDERADO = <p><b>Es un promedio ponderado</b>, no el promedio de los precios: Σ pesos / Σ kWh. Un recibo grande pesa más que uno chico. Por ejemplo, un recibo de 10,000 kWh a $2.50 y uno de 100 kWh a $5.00 dan $2.52/kWh, no $3.75.</p>;
-  const INFCO = {
-    anual: <><T3 t="Qué muestra" /><p>Cuántos MWh se consumieron en cada año y qué parte del consumo del periodo representa cada uno.</p>
-      <T3 t="Periodo" /><p>Cada fila es un año calendario con los meses que tienen datos; «Todo el periodo» suma {PER}. Un año con menos de 12 meses es parcial y no se puede comparar de frente con uno completo.</p>
-      <T3 t="Cómo se calcula" /><p>Suma de los kWh de todos los recibos del año, entre 1,000 para pasar a MWh. El promedio mensual divide ese total entre los meses con datos del año.</p>{AVISO_MESES}{FILTROS}</>,
-    mensual: <><T3 t="Qué muestra" /><p>Cuánta energía (kWh) consume la base cada mes{co.dimC ? <> y qué parte aporta cada {co.dimC}. Cada color es una categoría y conserva su color en todo el tablero; si hay más de 8, las menores se juntan en «Otras»</> : <> (con los filtros actuales no hay varias categorías que separar, así que se ve una sola barra por mes)</>}.</p>
-      <T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → zona → dependencia → municipio → zona de carga</b>: usa la primera opción que tenga más de una categoría con los filtros actuales.</p>
-      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}. Cada barra es el total de ese mes, no un acumulado.</p>
-      <T3 t="Cómo se calcula" /><p>Suma de los kWh de todos los recibos de ese mes; la gráfica los separa por categoría. Cada recibo cuenta una sola vez por mes.</p>{AVISO_MESES}{FILTROS}</>,
-    ranking: <><T3 t="Qué muestra" /><p>Cuánto consumió cada {co.dimR ?? "categoría"} en total y qué porcentaje del consumo representa (las 14 mayores; el resto en «Otras»).</p>
-      <T3 t="Se adapta al filtro" /><p>Agrupa por <b>dependencia → tarifa → municipio → zona de carga → zona</b>, sin repetir la agrupación de la gráfica mensual.</p>
-      <T3 t="Periodo" /><p><b>Acumulado de todo el periodo</b> ({PER}).</p>
-      <T3 t="Cómo se calcula" /><p>Suma de los kWh de todos los meses de los recibos de cada categoría.</p>{FILTROS}</>,
-    cmp: <><T3 t="Qué muestra" /><p>El consumo de cada mes del año, una línea por año, para ver si un mes consume más o menos que el mismo mes del año anterior.</p>
-      <T3 t="Periodo" /><p><b>Mes por mes</b>, un punto por mes de cada año. Los meses sin datos quedan sin punto.</p>
-      <T3 t="Cómo se calcula" /><p>Suma de los kWh de todos los recibos de ese mes y año.</p>
-      <T3 t="Ten en cuenta" /><p>Si un mes tiene pocos recibos cargados se ve más bajo de lo real; revisa los meses incompletos antes de concluir que el consumo bajó.</p>{AVISO_MESES}{FILTROS}</>
-  };
-  const INF = {
-    cG: <><T3 t="Qué muestra" /><p>Cuánta demanda (kW) tiene toda la base cada mes y qué parte aporta cada {v.dims.cG ?? "tarifa"}. Cada color es una categoría y conserva su color en todo el tablero; si hay más de 8, las menores se juntan en «Otras».</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → zona → dependencia → municipio → zona de carga</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
-      <T3 t="Periodo" /><p><b>Mes por mes</b>: cada barra es un mes, de {PER}. No es un acumulado.</p>
-      <T3 t="Cómo se calcula" /><p>Para cada mes, se toma la demanda de cada recibo (RPU) y se suman por tarifa:</p>{DEM_RECIBO}
-      <p>La altura total de la barra es la <b>demanda general aproximada</b> del mes. El mes más alto del filtro es {v.dGenMes}, con {KW(v.dGen)}; ese es el número del recuadro de arriba.</p>
-      <T3 t="Términos" />{DEF_AGREGADA}{DEF_NO_COINC}{AVISO_MESES}{FILTROS}</>,
-    cP: <><T3 t="Qué muestra" /><p>Cuántos recibos (RPU) hay de cada {v.recDim} y qué porcentaje representan de los recibos del filtro ({v.recN} categorías{v.recN > 15 ? "; se muestran las 14 mayores y el resto se junta en «Otras»" : ""}).</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → dependencia → municipio → zona de carga</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
-
-      <T3 t="Periodo" /><p><b>Todo el periodo junto</b> ({PER}): un recibo cuenta una sola vez aunque tenga muchos meses de historial.</p>
-      <T3 t="Cómo se calcula" /><p>% = recibos de la categoría / recibos totales del filtro ({N(nRec(R))}). La tarifa, dependencia y municipio son los del inmueble en Supabase; las domésticas (1, 1A–1F, DAC) se cuentan dentro de «{GRUPO_BT}». Cada tarifa, municipio (color de su zona), zona de carga y dependencia conserva su color en todo el tablero.</p>
-      <T3 t="Cómo leerla" /><p>Si una barra es muy chica, la gráfica arranca en escala log para que se vea; el tooltip siempre da el número exacto y el %.</p>{FILTROS}</>,
-    c1: <><T3 t="Qué muestra" /><p>El gasto de cada mes (barras, atrás) y el consumo de cada mes (línea, al frente).</p>
-      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}. Cada punto es el total de ese mes, no un acumulado.</p>
-      <T3 t="Cómo se calcula" /><p><b>Costo del mes</b> = suma del costo de todos los recibos de ese mes. El costo de cada recibo sale de la primera fuente disponible:</p>{FUENTES_COSTO}
-      <p><b>Consumo del mes</b> = suma de kWh de todos los recibos de ese mes.</p>
-      <T3 t="Ten en cuenta" /><p>En el filtro actual, {PCT(v.kCosto, K)} del consumo tiene costo. Los meses sin ninguna fuente de costo suman consumo pero no gasto, así que en esos meses la barra puede verse baja respecto a la línea.</p>{AVISO_MESES}{FILTROS}</>,
-    c2: <><T3 t="Qué muestra" /><p>Cuánto se gastó en total por cada {v.dims.c2 ?? "tarifa"} y qué porcentaje del gasto representa (las 14 mayores; el resto en «Otras»).</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → zona de carga → zona → dependencia</b>: usa la primera opción que tenga más de una categoría con los filtros actuales y que no esté ya en otra gráfica de costo de esta pestaña (por dependencia o por municipio). Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
-      <T3 t="Periodo" /><p><b>Acumulado de todo el periodo</b> ({PER}): suma de todos los meses.</p>
-      <T3 t="Cómo se calcula" /><p>Suma del costo de todos los meses de los recibos de cada tarifa. Fuentes del costo:</p>{FUENTES_COSTO}{FILTROS}</>,
-    c3: <><T3 t="Qué muestra" /><p>Cuánto se paga en promedio por cada kWh, por {v.dims.c3 ?? "tarifa"} (las 8 con más consumo), mes a mes.</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → zona → dependencia → municipio</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
-      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}: cada punto es el precio promedio de ese mes, no del periodo completo.</p>
-      <T3 t="Cómo se calcula" /><p>$/kWh del mes = Σ monto de los recibos de la tarifa en el mes / Σ kWh de esos mismos recibos. Solo usa montos que vienen del recibo (importe o kWh × precio impreso); no incluye costos calculados con la tabla de CFE porque todavía no se pueden confirmar.</p>
-      {PROMEDIO_PONDERADO}
-      <T3 t="Ten en cuenta" /><p>Un mes con pocos recibos puede dar un precio raro (por ejemplo, un mes de puros cargos fijos). «Recortar extremos» evita que esos picos aplasten al resto.</p>
-      {v.sinReal.length > 0 ? <p>Tarifas sin datos del recibo, que no aparecen: {v.sinReal.join(", ")}.</p> : null}{FILTROS}</>,
-    c6: <><T3 t="Qué muestra" /><p>{v.dims.c6Mes ? <>El gasto de cada mes repartido por {v.dims.c6} (apilado).</> : <>El gasto total por {v.dims.c6 ?? "municipio"}, de mayor a menor. Por municipio, cada barra tiene el color de su zona (leyenda arriba).</>}</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>municipio → zona de carga</b> (la primera con más de una categoría que no use ya otra gráfica de costo). Si ninguna sirve, se vuelve <b>costo mensual por tarifa → dependencia → zona → zona de carga</b>, que agrega cómo cambia el gasto en el tiempo. No se usa «inmueble» porque repetiría la tabla de recibos de mayor gasto.</p><T3 t="Periodo" /><p>{v.dims.c6Mes ? <><b>Mes por mes</b>, de {PER}.</> : <><b>Acumulado de todo el periodo</b> ({PER}).</>}</p>
-      <T3 t="Cómo se calcula" /><p>Suma del costo de todos los meses de los inmuebles de cada municipio. Fuentes del costo:</p>{FUENTES_COSTO}{FILTROS}</>,
-    c7: <><T3 t="Qué muestra" /><p>Las 10 categorías de mayor gasto por {v.dims.c7 ?? "dependencia"} (la décima junta al resto en «Otras» si hay más).</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>dependencia → municipio → tarifa → zona de carga</b>: usa la primera opción que tenga más de una categoría con los filtros actuales y que no esté ya en otra gráfica de costo de esta pestaña. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
-      <T3 t="Periodo" /><p><b>Acumulado de todo el periodo</b> ({PER}).</p>
-      <T3 t="Cómo se calcula" /><p>Suma del costo de todos los meses de los inmuebles de cada dependencia; se ordenan de mayor a menor y se muestran las 10 primeras.</p>{FUENTES_COSTO}{FILTROS}</>,
-    ch1: <><T3 t="Qué muestra" /><p>La demanda agregada de toda la base cada mes, apilada por tarifa, y cuánto sería si {GRUPO_BT} llegaran a su máximo permitido.</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → zona → dependencia → municipio → zona de carga</b>: usa la primera opción que tenga más de una categoría con los filtros actuales (la misma agrupación que «Demanda general» en General). Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
-      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}.</p>
-      <T3 t="Cómo se calcula" /><p><b>Barras:</b> suma de la demanda de cada recibo en el mes, separada por tarifa:</p>{DEM_RECIBO}
-      <p><b>Línea punteada:</b> la misma suma, pero cada recibo de {GRUPO_BT} cuenta con su máximo permitido ({PDBT_MAX_KW} kW en PDBT; {LIMITE_DOMESTICA_KW} kW en domésticas, supuesto porque la tarifa doméstica no fija un tope). Las demás tarifas se quedan con su demanda. La distancia entre la línea y la barra es cuánto podría crecer la demanda si esos servicios usaran todo lo que su tarifa permite.</p>
-      <T3 t="Términos" />{DEF_AGREGADA}{DEF_NO_COINC}{AVISO_MESES}{FILTROS}</>,
-    ch2: <><T3 t="Qué muestra" /><p>Los 15 grupos (según «Agrupar por») con mayor demanda agregada, y la tabla con todos los grupos.</p>
-      <T3 t="Periodo" /><p>Se revisan todos los meses de {PER} y se toma <b>el mes más alto</b> de cada grupo. No es un promedio ni un acumulado.</p>
-      <T3 t="Cómo se calcula" /><ul>
-        <li><b>Pico mensual agregado</b> (la barra): para cada mes se suma la demanda de los recibos del grupo; de esos meses se toma el más alto.</li>
-        <li><b>kW máx. individual:</b> el recibo del grupo con la demanda más alta en algún mes.</li>
-        <li><b>% de meses estimados:</b> qué parte de los meses del grupo no traía lectura de kW y se estimó con el consumo. Mientras más alto, más aproximado es el dato.</li>
-        <li><b>Factor de carga (medidos):</b> Σ kWh / Σ (kW · 24 h · días), solo con meses que sí traen lectura. Cerca de 1 = uso parejo todo el día; cerca de 0 = picos cortos.</li>
-        <li><b>Distribución + capacidad:</b> lo que esos dos cargos sumarían según la tabla de CFE, en todo el periodo.</li></ul>
-      <T3 t="Demanda de cada recibo" />{DEM_RECIBO}{DEF_NO_COINC}{FILTROS}</>,
-    ch3: <><T3 t="Qué muestra" /><p>La demanda estimada de {GRUPO_BT} frente a su límite de {PDBT_MAX_KW} kW.</p>
-      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}.</p>
-      <T3 t="Cómo se calcula" /><ul>
-        <li><b>Barras:</b> de todos los recibos del grupo, el que tuvo la demanda estimada más alta ese mes.</li>
-        <li><b>Línea continua:</b> el promedio de la demanda estimada de los recibos de ese mes.</li>
-        <li><b>Línea punteada:</b> el límite de {PDBT_MAX_KW} kW.</li></ul>
-      <p>Estas tarifas no miden demanda: se estima como kWh del mes / (24 h · días · FC), con FC = {ref.fc.toFixed(3)} (rango {ref.fcBajo.toFixed(3)}–{ref.fcAlto.toFixed(3)}), sin pasar de {PDBT_MAX_KW} kW. Si un recibo sí trae una lectura válida de kW, se usa esa.</p>
-      <T3 t="Ten en cuenta" /><p>Una barra pegada al límite indica recibos cuyo consumo es muy alto para la tarifa. Los recibos con lecturas mayores al límite aparecen en la tabla de abajo como posibles servicios mal clasificados (deberían ser GDBT).</p>{FILTROS}</>,
-    chL: <><T3 t="Qué muestra" /><p>Cuánta demanda tendrían {GRUPO_BT} si todos sus recibos usaran el máximo que permite su tarifa, frente a lo estimado hoy.</p>
-      <T3 t="Periodo" /><p>La gráfica va <b>mes por mes</b>, de {PER}. Los recuadros y la tabla toman, para cada recibo, su valor más alto del periodo.</p>
-      <T3 t="Cómo se calcula" /><ul>
-        <li><b>Barras:</b> suma de la demanda estimada de los recibos en el mes.</li>
-        <li><b>Línea:</b> recibos con datos ese mes × su máximo permitido ({PDBT_MAX_KW} kW en PDBT; {LIMITE_DOMESTICA_KW} kW en domésticas, supuesto).</li>
-        <li><b>Holgura:</b> proyección − estimada: cuántos kW más podrían pedir si todos llegaran al máximo.</li>
-        <li><b>Uso del máximo:</b> estimada / proyección.</li></ul>{DEF_NO_COINC}{FILTROS}</>,
-    c8: <><T3 t="Qué muestra" /><p>El gasto de cada mes repartido por {v.dims.c8 ?? "zona"} (apilado): la altura total es el gasto del mes y cada color es una categoría.</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>zona → municipio → tarifa → dependencia</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
-      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}.</p>
-      <T3 t="Cómo se calcula" /><p>Para cada mes y zona, suma del costo de los recibos de los inmuebles de esa zona. La zona de cada inmueble sale de su municipio; si el municipio no coincide con ninguna zona, se usa la zona más cercana por coordenadas.</p>{FUENTES_COSTO}{AVISO_MESES}{FILTROS}</>,
-    c9: <><T3 t="Qué muestra" /><p>Cuánto cuesta en promedio cada kWh por {v.dims.c9 ?? "zona"}.</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>zona → municipio → zona de carga → tarifa</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
-      <T3 t="Periodo" /><p><b>Todo el periodo junto</b> ({PER}): un solo valor por zona que junta todos sus meses, no el de un mes.</p>
-      <T3 t="Cómo se calcula" /><p>$/kWh de la zona = Σ costo de todos los meses de la zona / Σ kWh de esos meses (solo meses que tienen costo). A diferencia del costo unitario por tarifa, aquí sí entran los meses costeados con la tabla de CFE.</p>
-      {PROMEDIO_PONDERADO}{FUENTES_COSTO}{FILTROS}</>,
-    d1: <><T3 t="Qué muestra" /><p>El gasto (barras, atrás) y el consumo (línea, al frente) de la zona elegida en «Detalle de zona».</p>
-      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}.</p>
-      <T3 t="Cómo se calcula" /><p>Para cada mes, suma del costo y de los kWh de los recibos de los inmuebles de la zona.</p>{FUENTES_COSTO}{AVISO_MESES}{FILTROS}</>,
-    d2: <><T3 t="Qué muestra" /><p>Cuánto se gastó por {z.dimD2 ?? "tarifa"} dentro de la zona elegida, con los mismos colores de todo el tablero.</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → dependencia → municipio → inmueble</b>: usa la primera opción que tenga más de una categoría con los filtros actuales dentro de la zona. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
-      <T3 t="Periodo" /><p><b>Acumulado de todo el periodo</b> ({PER}).</p>
-      <T3 t="Cómo se calcula" /><p>Suma del costo de todos los meses de los recibos de cada tarifa dentro de la zona.</p>{FUENTES_COSTO}{FILTROS}</>,
-    nc: <><T3 t="Qué muestra" /><p>El gasto (barras, atrás) y el consumo (línea, al frente) por {n.dimN ?? "zona de carga"} (las 20 de mayor gasto).</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>zona de carga → municipio → tarifa → dependencia</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
-      <T3 t="Periodo" /><p><b>Acumulado de todo el periodo</b> ({PER}): un valor por zona de carga.</p>
-      <T3 t="Cómo se calcula" /><p>Cada inmueble se liga a una zona de carga por el NodoP capturado en el inmueble; si no lo tiene o no está en el catálogo, por su municipio (la zona de carga más frecuente entre los NodosP de ese municipio). Después se suman costo y kWh de todos sus meses.</p>{FUENTES_COSTO}{FILTROS}</>
-  };
-
-  /* Recuadros bajo los filtros: cambian con la pestaña */
-  const KP: Record<Tab, [string, string][]> = {
-    pg: [["Gasto total" + etqF, M(T)], ["Consumo total" + etqF, N(K / 1000) + " MWh"],
-      ...v.anual.flatMap((a): [string, string][] => [
-        [`Consumo ${a.y}${a.meses < 12 ? ` (${a.meses} meses)` : ""}${etqF}`, N(a.kwh / 1000) + " MWh"],
-        [`Demanda ${a.y}${a.meses < 12 ? ` (${a.meses} meses)` : ""}${etqF}`, KW(a.dem)]]),
-      ["Costo promedio", P(costoProm) + " /kWh"],  ["Inmuebles", N(distinct(R, (r) => r.i))]],
-    co: [["Consumo total" + etqF, N(K / 1000) + " MWh"], ["Consumo mensual promedio", N(K / 1000 / Math.max(1, persF.length)) + " MWh"],
-      ["Consumo promedio por recibo", N(K / Math.max(1, nRec(R))) + " kWh"], ["Recibos (RPU)", N(nRec(R))], ["Inmuebles", N(distinct(R, (r) => r.i))]],
-    dm: [["Demanda general aprox. (mes pico)", KW(v.dGen)], ["Demanda máx. GDMTH/GDMTO", KW(maxKw(d.D))], ["Demanda máx. individual", KW(d.indiv.max)],
-      ["Recibos con kW medido", N(d.medidos)], ["Recibos con demanda estimada", N(d.est.n)], ["Meses de kW corregidos", N(d.val.corr)]],
-    pc: [["Zonas", N(v.cn.length)], ["Gasto", M(T)], ["Consumo", N(K / 1000) + " MWh"], ["Costo promedio", P(costoProm) + " /kWh"],
-      ["Zona de mayor gasto", v.zTop ? v.zTop[0] : "—"], ["Inmuebles", N(distinct(R, (r) => r.i))]],
-    np: of?.nodos ? [["NodosP en Tamaulipas", N(n.nodos.length)], ["Zonas de carga", N(n.zcs.length)], ["Municipios con NodoP", N(n.muns)],
-      ["Inmuebles en una zona de carga", N(distinct(R.filter((r) => r.nodo !== "Sin nodo"), (r) => r.i))]] : [],
-    vm: [["Meses de historial", N(R.length)], ["Meses con costo", PCT(v.conCosto, R.length)], ["Meses de kW corregidos", N(d.val.corr)],
-      ["Recibos con demanda estimada", N(d.est.n)], ["Precios atípicos", N(v.atip.length)], ["Recibos (RPU)", N(nRec(R))]]
-  };
-
+  /* Hooks de la vista móvil: van antes del «return» de carga; si quedan después, React falla al llegar los datos
+     («Rendered more hooks than during the previous render») */
   const esMovil = useEsMovil();
     const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
     const dashRef = useRef<HTMLDivElement>(null);
@@ -863,6 +772,170 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
     return [...TABS.slice(shift), ...TABS.slice(0, shift)];
   }, [tab]);
 
+  if (!model) return <div className="dash" data-theme={theme}><main><h1>Recibos de CFE</h1><p className="d-sub">Cargando…</p></main></div>;
+
+  const { T, K } = v;
+  const periodo = rows.length ? `${rows.reduce((m, r) => (r.per < m ? r.per : m), rows[0].per)} a ${rows.reduce((m, r) => (r.per > m ? r.per : m), rows[0].per)}` : "";
+  const costoProm = unit(R);
+  /** Sin filtros los recuadros muestran el total de toda la base; con algún filtro lo marcan */
+  const hayF = CAMPOS_F.some((k) => f[k]), etqF = hayF ? " · filtrado" : "";
+  const zT = sum(z.cs, tot), zK = sum(z.cs, kwh);
+  const dif = t.fact ? ((t.calc - t.fact) / t.fact) * 100 : 0;
+  const ref = d.est.ref;
+  /* ── Informes de cada gráfica: qué muestra, qué periodo cubre, cómo se calcula y cómo leerla ── */
+  const persF = [...new Set(R.map((r) => r.per))].sort();
+  const recMes = persF.map((p) => R.filter((r) => r.per === p).length), medRec = [...recMes].sort((a, b) => a - b)[recMes.length >> 1] ?? 0;
+  const incompletos = persF.filter((_, i) => recMes[i] < medRec * 0.5);
+  const PER = persF.length ? <>{persF[0]} a {persF[persF.length - 1]} ({persF.length} meses)</> : <>sin datos</>;
+  const T3 = ({ t }: { t: string }) => <h3 className="d-inf-t">{t}</h3>;
+  const FILTROS = <p>Todo se calcula con los recibos que dejan pasar los filtros de arriba (dependencia, tarifa, municipio y zona de carga).</p>;
+  const AVISO_MESES = incompletos.length > 0
+    ? <p><b>Meses incompletos:</b> {incompletos.join(", ")} tienen menos de la mitad de los recibos de un mes normal (aún no se cargan todos), así que se ven más bajos de lo real.</p> : null;
+  const FUENTES_COSTO = <><ul>
+    <li><b>Subtotal del recibo sin IVA</b> (columna <code>subtotal</code> de Supabase), que existe para todas las tarifas, GDMTH incluida.</li>
+    <li><b>Tabla oficial de CFE</b> de su división y mes, también sin IVA, solo cuando el mes no trae subtotal (por ejemplo, precio impreso incompleto).</li>
+  </ul><p>Todos los montos del tablero son <b>sin IVA</b>, para que PDBT y las tarifas con demanda se comparen en la misma base.</p></>;
+  const DEM_RECIBO = <ul>
+    <li><b>Recibos con lectura de kW</b> (GDMTH, GDMTO, GDBT…): la demanda máxima que trae el recibo ese mes, ya validada. Los meses marcados como <b>demanda dudosa</b> en Supabase, o con un error evidente, se reemplazan con la media del recibo (ver la última tarjeta de la pestaña Demanda).</li>
+    <li><b>Recibos sin lectura</b> ({GRUPO_BT} y meses sin dato): se estima con su consumo, kWh del mes / (24 h · días del mes · FC). El FC (factor de carga) es {ref.fc.toFixed(3)}, la mediana de {N(ref.n)} {ref.origen}. En {GRUPO_BT} nunca pasa de {PDBT_MAX_KW} kW.</li>
+    <li><b>Meses con lectura estimada</b> (el recibo no trae lectura real del medidor): su kWh no es real, así que no se les estima demanda.</li>
+  </ul>;
+  const SIN_PRECIO = v.sinPrecio.length > 0 ? <><p><b>Meses sin precio en el filtro</b> (no entran al $/kWh; su consumo sí cuenta y su subtotal, si existe, sí entra al gasto):</p>
+    <table style={{ minWidth: 0, margin: "4px 0 10px" }}><thead><tr><th>Motivo</th><th className="n">Meses</th><th className="n">kWh</th></tr></thead>
+      <tbody>{v.sinPrecio.map((x) => <tr key={x.k}><td>{x.txt}</td><td className="n">{N(x.n)}</td><td className="n">{N(x.kwh)}</td></tr>)}</tbody></table></> : null;
+  const LEC_EST = v.lecEst.length > 0 ? <p><b>Lectura estimada:</b> {N(v.lecEst.length)} meses de {N(nRec(v.lecEst))} recibos no tienen lectura real del medidor. Un 0 kWh en esos meses no es consumo cero: es un dato que falta, así que el consumo real fue algo mayor al que se muestra.</p> : null;
+  const CONS_AT = v.consAt.length > 0 ? <p><b>Consumo atípico:</b> {N(v.consAt.length)} meses de {N(nRec(v.consAt))} recibos tienen un consumo fuera de lo normal del inmueble: vienen marcados en Supabase (columna <code>consumo_atipico</code>) o su kWh es {FACTOR_ATIPICO} o más veces lo que marcan sus otros meses (en {NOMBRE_VERANO} se permite hasta {FACTOR_VERANO}× más por el aire acondicionado). Se siguen sumando, porque es lo que se facturó (puede ser una refacturación o una lectura acumulada); si un mes se dispara, revisa primero estos recibos. No se usan para estimar demanda.</p> : null;
+  const DEF_DEMANDA = <><p><b>Qué es la demanda:</b> los kW que un inmueble pide <b>al mismo tiempo</b> en su momento de mayor uso (todos los equipos que prende a la vez). Describe el <b>tamaño</b> del inmueble, no lo que gasta en el tiempo: eso es el consumo (kWh). Una comparación útil: el consumo es la distancia que recorre un auto; la demanda, qué tan grande es su motor.</p>
+    <p><b>Por eso no se suma:</b> sumar la demanda de varios inmuebles daría un número que nunca ocurre, porque cada uno tiene su pico en un día y hora distintos. En lugar de sumar, el tablero usa la <b>demanda máxima</b> de cada inmueble (su mes más alto) y la describe con la <b>demanda típica</b> (la mediana: la mitad de los inmuebles está por debajo y la otra mitad por arriba) y el <b>inmueble más grande</b>.</p></>;
+  const DEF_REFERENCIA = <p><b>Contra qué se compara:</b> {d.cmp.conContr > 0 ? <>la <b>demanda contratada</b> de cada inmueble ({N(d.cmp.conContr)} inmuebles la tienen en Supabase); </> : null}{d.cmp.conContr < v.dems.length ? <>{d.cmp.conContr > 0 ? "los demás, " : ""}contra el <b>rango de demanda de su tarifa</b> según CFE: PDBT hasta {PDBT_MAX_KW} kW, GDBT más de {PDBT_MAX_KW} kW, GDMTO menos de 100 kW y GDMTH 100 kW o más (domésticas: {LIMITE_DOMESTICA_KW} kW, supuesto). Un inmueble arriba de su rango podría necesitar otra tarifa; uno abajo, podría estar pagando una tarifa más cara de lo necesario.</> : null}</p>;
+  const PROMEDIO_PONDERADO = <p><b>Es un promedio ponderado</b>, no el promedio de los precios: Σ pesos / Σ kWh. Un recibo grande pesa más que uno chico. Por ejemplo, un recibo de 10,000 kWh a $2.50 y uno de 100 kWh a $5.00 dan $2.52/kWh, no $3.75.</p>;
+  const INFCO = {
+    anual: <><T3 t="Qué muestra" /><p>Cuántos MWh se consumieron en cada año y qué parte del consumo del periodo representa cada uno.</p>
+      <T3 t="Periodo" /><p>Cada fila es un año calendario con los meses que tienen datos; «Todo el periodo» suma {PER}. Un año con menos de 12 meses es parcial y no se puede comparar de frente con uno completo.</p>
+      <T3 t="Cómo se calcula" /><p>Suma de los kWh de todos los recibos del año, entre 1,000 para pasar a MWh. El promedio mensual divide ese total entre los meses con datos del año.</p>{AVISO_MESES}{FILTROS}</>,
+    mensual: <><T3 t="Qué muestra" /><p>Cuánta energía (kWh) consume la base cada mes{co.dimC ? <> y qué parte aporta cada {co.dimC}. Cada color es una categoría y conserva su color en todo el tablero; si hay más de 8, las menores se juntan en «Otras»</> : <> (con los filtros actuales no hay varias categorías que separar, así que se ve una sola barra por mes)</>}.</p>
+      <T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → zona → dependencia → municipio → zona de carga</b>: usa la primera opción que tenga más de una categoría con los filtros actuales.</p>
+      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}. Cada barra es el total de ese mes, no un acumulado.</p>
+      <T3 t="Cómo se calcula" /><p>Suma de los kWh de todos los recibos de ese mes; la gráfica los separa por categoría. Cada recibo cuenta una sola vez por mes.</p>{LEC_EST}{CONS_AT}{AVISO_MESES}{FILTROS}</>,
+    ranking: <><T3 t="Qué muestra" /><p>Cuánto consumió cada {co.dimR ?? "categoría"} en total y qué porcentaje del consumo representa (las 14 mayores; el resto en «Otras»).</p>
+      <T3 t="Se adapta al filtro" /><p>Agrupa por <b>dependencia → tarifa → municipio → zona de carga → zona</b>, sin repetir la agrupación de la gráfica mensual.</p>
+      <T3 t="Periodo" /><p><b>Acumulado de todo el periodo</b> ({PER}).</p>
+      <T3 t="Cómo se calcula" /><p>Suma de los kWh de todos los meses de los recibos de cada categoría.</p>{FILTROS}</>,
+    dem: <><T3 t="Qué muestra" /><p>El consumo de cada mes (barras, eje izquierdo, kWh) junto con la demanda de ese mismo mes (línea, eje derecho, kW), para ver si la demanda sube o baja al ritmo del consumo.</p>
+      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}. Cada punto es el total de ese mes, no un acumulado.</p>
+      <T3 t="Cómo se calcula" /><p><b>Consumo</b> = suma de los kWh de todos los recibos del mes. <b>Demanda típica</b> = la mediana de la demanda de los inmuebles ese mes: el tamaño de un inmueble típico. No se suman, porque cada inmueble tiene su pico en un momento distinto.</p>{DEM_RECIBO}
+      <p>Al pasar el cursor por un mes se muestra su <b>factor de carga</b> = Σ kWh / (24 · días del mes · Σ kW de los inmuebles), un promedio ponderado de todos. Mide qué tan parejo es el uso: cerca de 100 % es una carga constante; un valor bajo indica picos de demanda con poco consumo sostenido.</p>
+      <T3 t="Ten en cuenta" /><p>En los recibos sin lectura de kW la demanda se estima a partir del consumo, así que en esa parte la línea sube y baja con las barras por construcción. Para ver la relación real, filtra por tarifas con demanda medida (GDMTH, GDMTO).</p>{DEF_DEMANDA}{AVISO_MESES}{FILTROS}</>,
+    cmp: <><T3 t="Qué muestra" /><p>El consumo de cada mes del año, una línea por año, para ver si un mes consume más o menos que el mismo mes del año anterior.</p>
+      <T3 t="Periodo" /><p><b>Mes por mes</b>, un punto por mes de cada año. Los meses sin datos quedan sin punto.</p>
+      <T3 t="Cómo se calcula" /><p>Suma de los kWh de todos los recibos de ese mes y año.</p>
+      <T3 t="Ten en cuenta" /><p>Si un mes tiene pocos recibos cargados se ve más bajo de lo real; revisa los meses incompletos antes de concluir que el consumo bajó.</p>{AVISO_MESES}{FILTROS}</>
+  };
+  const INF = {
+    cG: <><T3 t="Qué muestra" /><p>Qué tan grandes son los inmuebles: cuántos caen en cada rango de <b>demanda máxima</b> (kW), separados por {v.dims.cG ?? "tarifa"}. Cada color conserva su color en todo el tablero; si hay más de 8 categorías, las menores se juntan en «Otras».</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → zona → dependencia → municipio → zona de carga</b>: usa la primera opción que tenga más de una categoría con los filtros actuales.</p>
+      <T3 t="Periodo" /><p><b>Todo el periodo junto</b> ({PER}): cada inmueble cuenta una vez, con su mes de mayor demanda.</p>
+      <T3 t="Cómo se calcula" /><p>Para cada inmueble se toma su demanda más alta del periodo y se ubica en su rango. La demanda de cada mes sale así:</p>{DEM_RECIBO}
+      <p>En el filtro actual, la demanda típica por inmueble es {KW(v.demTip)} y el inmueble más grande pide {KW(v.demMax)}.</p>
+      <T3 t="Términos" />{DEF_DEMANDA}{FILTROS}</>,
+    cDM: <><T3 t="Qué muestra" /><p>Qué meses piden más demanda. Cada línea es una {v.dims.cG ?? "tarifa"} (las 8 con más recibos) y marca la <b>demanda típica</b> de sus inmuebles ese mes; la línea punteada gris es el <b>inmueble más grande</b> de cada mes, de todas las categorías.</p>
+      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}.</p>
+      <T3 t="Cómo se calcula" /><p>Para cada mes y categoría se toma la demanda de cada inmueble ese mes y se calcula la mediana (no se suman). La demanda de cada mes sale así:</p>{DEM_RECIBO}
+      <p>Tomando todos los inmuebles juntos, el mes con la demanda típica más alta es <b>{v.mesPico}</b>, con {KW(v.tipPico)} por inmueble.</p>
+      <T3 t="Cómo leerla" /><p>Si una línea sube en verano es que esos inmuebles prenden más equipo (aire acondicionado, bombeo) en esos meses. Las tarifas grandes (GDMTH) y chicas (PDBT) tienen tamaños muy distintos: si una línea aplasta a las demás, usa «Escala log».</p>
+      <T3 t="Términos" />{DEF_DEMANDA}{AVISO_MESES}{FILTROS}</>,
+    cP: <><T3 t="Qué muestra" /><p>Cuántos recibos (RPU) hay de cada {v.recDim} y qué porcentaje representan de los recibos del filtro ({v.recN} categorías{v.recN > 15 ? "; se muestran las 14 mayores y el resto se junta en «Otras»" : ""}).</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → dependencia → municipio → zona de carga</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
+
+      <T3 t="Periodo" /><p><b>Todo el periodo junto</b> ({PER}): un recibo cuenta una sola vez aunque tenga muchos meses de historial.</p>
+      <T3 t="Cómo se calcula" /><p>% = recibos de la categoría / recibos totales del filtro ({N(nRec(R))}). La tarifa, dependencia y municipio son los del inmueble en Supabase; las domésticas (1, 1A–1F, DAC) se cuentan dentro de «{GRUPO_BT}». La tarifa sale de cada mes del historial (<code>historial_calculo.tarifa</code>), así que un recibo que cambió de tarifa en el periodo cuenta en cada una{v.cambioTar ? <> (en el filtro actual, {N(v.cambioTar)} recibos cambiaron de tarifa)</> : null}. Cada tarifa, municipio (color de su zona), zona de carga y dependencia conserva su color en todo el tablero.</p>
+      <T3 t="Cómo leerla" /><p>Si una barra es muy chica, la gráfica arranca en escala log para que se vea; el tooltip siempre da el número exacto y el %.</p>{FILTROS}</>,
+    c1: <><T3 t="Qué muestra" /><p>El gasto de cada mes (barras, atrás) y el consumo de cada mes (línea, al frente).</p>
+      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}. Cada punto es el total de ese mes, no un acumulado.</p>
+      <T3 t="Cómo se calcula" /><p><b>Costo del mes</b> = suma del costo de todos los recibos de ese mes. El costo de cada recibo sale de la primera fuente disponible:</p>{FUENTES_COSTO}
+      <p><b>Consumo del mes</b> = suma de kWh de todos los recibos de ese mes.</p>
+      <T3 t="Ten en cuenta" /><p>En el filtro actual, {PCT(v.kCosto, K)} del consumo tiene costo. Los meses sin subtotal ni tabla de CFE suman consumo pero no gasto, así que en esos meses la barra puede verse baja respecto a la línea.</p>
+      {t.nG > 0 && <p><b>Comprobación con la tabla de CFE:</b> en {N(t.nG)} meses de GDMTH y GDMTO, el subtotal de los recibos suma {M(t.fact)} y el cálculo con la tarifa oficial {M(t.calc)} ({t.fact ? ((t.calc - t.fact) / t.fact * 100 >= 0 ? "+" : "") + ((t.calc - t.fact) / t.fact * 100).toFixed(1) : "0"} %). La diferencia viene sobre todo del reparto supuesto entre base, intermedia y punta.</p>}{LEC_EST}{AVISO_MESES}{FILTROS}</>,
+    c2: <><T3 t="Qué muestra" /><p>Cuánto se gastó en total por cada {v.dims.c2 ?? "tarifa"} y qué porcentaje del gasto representa (las 14 mayores; el resto en «Otras»).</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → zona de carga → zona → dependencia</b>: usa la primera opción que tenga más de una categoría con los filtros actuales y que no esté ya en otra gráfica de costo de esta pestaña (por dependencia o por municipio). Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
+      <T3 t="Periodo" /><p><b>Acumulado de todo el periodo</b> ({PER}): suma de todos los meses.</p>
+      <T3 t="Cómo se calcula" /><p>Suma del costo de todos los meses de los recibos de cada tarifa. Fuentes del costo:</p>{FUENTES_COSTO}{FILTROS}</>,
+    c3: <><T3 t="Qué muestra" /><p>Cuánto se paga en promedio por cada kWh, por {v.dims.c3 ?? "tarifa"} (las 8 con más consumo), mes a mes.</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → zona → dependencia → municipio</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
+      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}: cada punto es el precio promedio de ese mes, no del periodo completo.</p>
+      <T3 t="Cómo se calcula" /><p>$/kWh del mes = Σ subtotal sin IVA / Σ kWh, solo con los meses que traen <b>precio sin IVA</b> (columna <code>precio_sin_iva</code>). Es la misma fórmula que usa el mapa, así que los precios coinciden en los dos lugares. No incluye costos calculados con la tabla de CFE.</p>
+      {PROMEDIO_PONDERADO}
+      <T3 t="Ten en cuenta" /><p>Los meses de puro cargo fijo, refacturaciones y precios atípicos ya vienen marcados en Supabase y se dejan fuera. Si aun así un mes con pocos recibos se dispara, «Recortar extremos» evita que aplaste al resto.</p>
+      {v.sinReal.length > 0 ? <p>Sin meses con precio, no aparecen: {v.sinReal.join(", ")}.</p> : null}{SIN_PRECIO}{FILTROS}</>,
+    c6: <><T3 t="Qué muestra" /><p>{v.dims.c6Mes ? <>El gasto de cada mes repartido por {v.dims.c6} (apilado).</> : <>El gasto total por {v.dims.c6 ?? "municipio"}, de mayor a menor. Por municipio, cada barra tiene el color de su zona (leyenda arriba).</>}</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>municipio → zona de carga</b> (la primera con más de una categoría que no use ya otra gráfica de costo). Si ninguna sirve, se vuelve <b>costo mensual por tarifa → dependencia → zona → zona de carga</b>, que agrega cómo cambia el gasto en el tiempo. No se usa «inmueble» porque repetiría la tabla de recibos de mayor gasto.</p><T3 t="Periodo" /><p>{v.dims.c6Mes ? <><b>Mes por mes</b>, de {PER}.</> : <><b>Acumulado de todo el periodo</b> ({PER}).</>}</p>
+      <T3 t="Cómo se calcula" /><p>Suma del costo de todos los meses de los inmuebles de cada municipio. Fuentes del costo:</p>{FUENTES_COSTO}{FILTROS}</>,
+    c7: <><T3 t="Qué muestra" /><p>Las 10 categorías de mayor gasto por {v.dims.c7 ?? "dependencia"} (la décima junta al resto en «Otras» si hay más).</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>dependencia → municipio → tarifa → zona de carga</b>: usa la primera opción que tenga más de una categoría con los filtros actuales y que no esté ya en otra gráfica de costo de esta pestaña. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
+      <T3 t="Periodo" /><p><b>Acumulado de todo el periodo</b> ({PER}).</p>
+      <T3 t="Cómo se calcula" /><p>Suma del costo de todos los meses de los inmuebles de cada dependencia; se ordenan de mayor a menor y se muestran las 10 primeras.</p>{FUENTES_COSTO}{FILTROS}</>,
+    cmpD: <><T3 t="Qué muestra" /><p>Cuántos inmuebles tienen una demanda máxima acorde con {d.cmp.tipoRef === "contr" ? "su demanda contratada" : "el rango de su tarifa"}, y cuáles conviene revisar.</p>
+      <T3 t="Periodo" /><p><b>Todo el periodo junto</b> ({PER}): cada inmueble cuenta una vez, con su mes de mayor demanda.</p>
+      <T3 t="Cómo se calcula" />{DEF_REFERENCIA}<ul>
+        <li><b>Arriba:</b> la demanda máxima pasa la referencia.</li>
+        <li><b>Cerca (80–100 %):</b> está cerca del tope; un mes con más carga lo podría pasar.</li>
+        <li><b>{d.cmp.tipoRef === "contr" ? "Uso adecuado (50–80 %)" : "Dentro del rango"}:</b> sin observaciones.</li>
+        <li><b>{d.cmp.tipoRef === "contr" ? "Contratada de más (menos de 50 %)" : "Abajo del rango"}:</b> {d.cmp.tipoRef === "contr" ? "paga capacidad que no usa; se podría bajar la demanda contratada." : "la tarifa es para inmuebles más grandes; podría convenir otra."}</li></ul>
+      <p>La demanda de cada inmueble sale así:</p>{DEM_RECIBO}
+      <T3 t="Términos" />{DEF_DEMANDA}{FILTROS}</>,
+    ch2: <><T3 t="Qué muestra" /><p>El tamaño de los inmuebles de cada grupo (según «Agrupar por»): la barra fuerte es la <b>demanda típica</b> y la clara, el <b>inmueble más grande</b>. Se muestran los 15 grupos con el inmueble más grande; la tabla trae todos.</p>
+      <T3 t="Periodo" /><p><b>Todo el periodo junto</b> ({PER}): cada inmueble cuenta con su mes de mayor demanda.</p>
+      <T3 t="Cómo se calcula" /><ul>
+        <li><b>Demanda típica:</b> la mediana de la demanda máxima de los inmuebles del grupo.</li>
+        <li><b>Inmueble más grande:</b> la demanda máxima más alta del grupo.</li>
+        <li><b>Fuera de referencia:</b> inmuebles arriba o abajo de {d.cmp.tipoRef === "contr" ? "su demanda contratada" : "el rango de su tarifa"} (ver la primera tarjeta).</li>
+        <li><b>% de meses estimados:</b> qué parte de los meses del grupo no traía lectura de kW y se estimó con el consumo. Mientras más alto, más aproximado es el dato.</li>
+        <li><b>Factor de carga (medidos):</b> Σ kWh / Σ (kW · 24 h · días), solo con meses que traen lectura. Cerca de 100 % = uso parejo todo el día; bajo = picos cortos.</li>
+        <li><b>Distribución + capacidad:</b> lo que esos dos cargos sumarían según la tabla de CFE, en todo el periodo.</li></ul>
+      <T3 t="Demanda de cada recibo" />{DEM_RECIBO}<T3 t="Términos" />{DEF_DEMANDA}{FILTROS}</>,
+    ch3: <><T3 t="Qué muestra" /><p>La demanda estimada de {GRUPO_BT} frente a su límite de {PDBT_MAX_KW} kW.</p>
+      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}.</p>
+      <T3 t="Cómo se calcula" /><ul>
+        <li><b>Barras:</b> de todos los recibos del grupo, el que tuvo la demanda estimada más alta ese mes.</li>
+        <li><b>Línea continua:</b> el promedio de la demanda estimada de los recibos de ese mes.</li>
+        <li><b>Línea punteada:</b> el límite de {PDBT_MAX_KW} kW.</li></ul>
+      <p>Estas tarifas no miden demanda: se estima como kWh del mes / (24 h · días · FC), con FC = {ref.fc.toFixed(3)} (rango {ref.fcBajo.toFixed(3)}–{ref.fcAlto.toFixed(3)}), sin pasar de {PDBT_MAX_KW} kW. Si un recibo sí trae una lectura válida de kW, se usa esa.</p>
+      <T3 t="Ten en cuenta" /><p>Una barra pegada al límite indica recibos cuyo consumo es muy alto para la tarifa. Los recibos con lecturas mayores al límite aparecen en la tabla de abajo como posibles servicios mal clasificados (deberían ser GDBT).</p>{FILTROS}</>,
+    chL: <><T3 t="Qué muestra" /><p>Qué tan cerca está cada inmueble de {GRUPO_BT} del límite de demanda de su tarifa ({PDBT_MAX_KW} kW en PDBT; {LIMITE_DOMESTICA_KW} kW en domésticas, supuesto porque la tarifa doméstica no fija un tope).</p>
+      <T3 t="Periodo" /><p><b>Todo el periodo junto</b> ({PER}): cada inmueble cuenta con su mes de mayor demanda.</p>
+      <T3 t="Cómo se calcula" /><p>% del límite = demanda máxima del inmueble / límite de su tarifa. Como estas tarifas no miden demanda, casi siempre es la estimada con el consumo (FC = {ref.fc.toFixed(3)}).</p>
+      <T3 t="Cómo leerla" /><p>Los inmuebles en <b>80 a 100 %</b> pueden pasarse del límite en un mes con más carga; los de <b>arriba del límite</b> probablemente deberían estar en GDBT. Los de menos de 25 % tienen mucho margen.</p>{FILTROS}</>,
+    c8: <><T3 t="Qué muestra" /><p>El gasto de cada mes repartido por {v.dims.c8 ?? "zona"} (apilado): la altura total es el gasto del mes y cada color es una categoría.</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>zona → municipio → tarifa → dependencia</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
+      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}.</p>
+      <T3 t="Cómo se calcula" /><p>Para cada mes y zona, suma del costo de los recibos de los inmuebles de esa zona. La zona de cada inmueble sale de su municipio; si el municipio no coincide con ninguna zona, se usa la zona más cercana por coordenadas.</p>{FUENTES_COSTO}{AVISO_MESES}{FILTROS}</>,
+    c9: <><T3 t="Qué muestra" /><p>Cuánto cuesta en promedio cada kWh por {v.dims.c9 ?? "zona"}.</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>zona → municipio → zona de carga → tarifa</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
+      <T3 t="Periodo" /><p><b>Todo el periodo junto</b> ({PER}): un solo valor por zona que junta todos sus meses, no el de un mes.</p>
+      <T3 t="Cómo se calcula" /><p>$/kWh = Σ subtotal sin IVA / Σ kWh de todos los meses con precio sin IVA de cada categoría (la misma fórmula del mapa). Los meses sin precio no entran.</p>
+      {PROMEDIO_PONDERADO}{FUENTES_COSTO}{FILTROS}</>,
+    d1: <><T3 t="Qué muestra" /><p>El gasto (barras, atrás) y el consumo (línea, al frente) de la zona elegida en «Detalle de zona».</p>
+      <T3 t="Periodo" /><p><b>Mes por mes</b>, de {PER}.</p>
+      <T3 t="Cómo se calcula" /><p>Para cada mes, suma del costo y de los kWh de los recibos de los inmuebles de la zona.</p>{FUENTES_COSTO}{AVISO_MESES}{FILTROS}</>,
+    d2: <><T3 t="Qué muestra" /><p>Cuánto se gastó por {z.dimD2 ?? "tarifa"} dentro de la zona elegida, con los mismos colores de todo el tablero.</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>tarifa → dependencia → municipio → inmueble</b>: usa la primera opción que tenga más de una categoría con los filtros actuales dentro de la zona. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
+      <T3 t="Periodo" /><p><b>Acumulado de todo el periodo</b> ({PER}).</p>
+      <T3 t="Cómo se calcula" /><p>Suma del costo de todos los meses de los recibos de cada tarifa dentro de la zona.</p>{FUENTES_COSTO}{FILTROS}</>,
+    nc: <><T3 t="Qué muestra" /><p>El gasto (barras, atrás) y el consumo (línea, al frente) por {n.dimN ?? "zona de carga"} (las 20 de mayor gasto).</p><T3 t="Se adapta al filtro" /><p>Agrupa por <b>zona de carga → municipio → tarifa → dependencia</b>: usa la primera opción que tenga más de una categoría con los filtros actuales. Si ninguna tiene más de una, la gráfica se oculta porque no aportaría nada.</p>
+      <T3 t="Periodo" /><p><b>Acumulado de todo el periodo</b> ({PER}): un valor por zona de carga.</p>
+      <T3 t="Cómo se calcula" /><p>Cada inmueble se liga a una zona de carga por el NodoP capturado en el inmueble; si no lo tiene o no está en el catálogo, por su municipio (la zona de carga más frecuente entre los NodosP de ese municipio). Después se suman costo y kWh de todos sus meses.</p>{FUENTES_COSTO}{FILTROS}</>
+  };
+
+  /* Recuadros bajo los filtros: cambian con la pestaña */
+  const KP: Record<Tab, [string, string][]> = {
+    pg: [["Gasto total sin IVA" + etqF, M(T)], ["Consumo total" + etqF, N(K / 1000) + " MWh"],
+      ...v.anual.flatMap((a): [string, string][] => [
+        [`Consumo ${a.y}${a.meses < 12 ? ` (${a.meses} meses)` : ""}${etqF}`, N(a.kwh / 1000) + " MWh"],
+        [`Demanda máx. ${a.y}${a.meses < 12 ? ` (${a.meses} meses)` : ""}${etqF}`, KW(a.dem)]]),
+      ["Costo promedio sin IVA", P(costoProm) + " /kWh"],  ["Inmuebles", N(distinct(R, (r) => r.i))]],
+    co: [["Consumo total" + etqF, N(K / 1000) + " MWh"], ["Consumo mensual promedio", N(K / 1000 / Math.max(1, persF.length)) + " MWh"],
+      ["Consumo promedio por recibo", N(K / Math.max(1, nRec(R))) + " kWh"], ["Meses con lectura estimada", N(v.lecEst.length)], ["Meses con consumo atípico", N(v.consAt.length)]],
+    dm: [["Demanda máxima (inmueble más grande)", KW(v.demMax)], ["Demanda típica por inmueble", KW(v.demTip)],
+      ["Inmuebles con kW medido", N(d.medidos)], ["Inmuebles con demanda estimada", N(d.est.n)],
+      [d.cmp.tipoRef === "contr" ? "Arriba de la contratada" : "Arriba del rango de su tarifa", N(d.cmp.arriba)], ["Meses de kW corregidos", N(d.val.corr)]],
+    pc: [["Zonas", N(v.cn.length)], ["Gasto sin IVA", M(T)], ["Consumo", N(K / 1000) + " MWh"], ["Costo promedio sin IVA", P(costoProm) + " /kWh"],
+      ["Zona de mayor gasto", v.zTop ? v.zTop[0] : "—"], ["Inmuebles", N(distinct(R, (r) => r.i))]],
+    np: of?.nodos ? [["NodosP en Tamaulipas", N(n.nodos.length)], ["Zonas de carga", N(n.zcs.length)], ["Municipios con NodoP", N(n.muns)],
+      ["Inmuebles en una zona de carga", N(distinct(R.filter((r) => r.nodo !== "Sin nodo"), (r) => r.i))]] : []
+  };
+
+
   return (
     <div className="dash" data-theme={theme} ref={dashRef}>
       <main>
@@ -885,7 +958,6 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
             {of.tar ? <>Tarifas CFE consultadas el {FECHA(of.tar.generado)}. </> : <>Sin tarifas oficiales (<code>node scripts/scrape-tarifas-cfe.mjs</code>). </>}
             {of.nodos ? <>Catálogo NodosP {of.nodos.version}. </> : <>Sin catálogo de NodosP (<code>node scripts/scrape-nodosp-cenace.mjs</code>). </>}
           </>}
-          <button className="d-link" type="button" onClick={() => setTab("vm")}>Cómo se calcula →</button>
         </div>
 
         {esMovil && (
@@ -906,9 +978,10 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
                   <div className="d-bar">
                     <label>Dependencia<select value={f.dep} onChange={set("dep")}><option value="">Todas las dependencias</option><OPC l={opts.dep} /></select></label>
                     <label>Tarifa<select value={f.tar} onChange={set("tar")}><option value="">Todas las tarifas</option><OPC l={opts.tar} /></select></label>
+                    <label>División CFE<select value={f.div} onChange={set("div")}><option value="">Todas las divisiones</option><OPC l={opts.div} /></select></label>
                     <label>Municipio<select value={f.mun} onChange={set("mun")}><option value="">Todos los municipios</option><OPC l={opts.mun} /></select></label>
                     <label>Zona de carga<select value={f.nodo} onChange={set("nodo")}><option value="">Todas las zonas de carga</option><OPC l={opts.nodo} /></select></label>
-                    <button className="d-btn" type="button" onClick={() => { setF({ dep: "", tar: "", mun: "", nodo: "" }); setAvisoF(""); }}>Limpiar filtros</button>
+                    <button className="d-btn" type="button" onClick={() => { setF(SIN_FILTROS); setAvisoF(""); }}>Limpiar filtros</button>
                   </div>
                 )}
 
@@ -923,7 +996,8 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
 
         {tab === "pg" && (
           <div className="d-grid">
-            {v.charts.cG && <div className={"d-card " + (v.charts.cP ? "w8" : "w12")}><Cab t={`Demanda general por ${v.dims.cG}`} info={INF.cG} /><Nota nat="tarifa" act={v.dims.cG} /><Grafica config={v.charts.cG} theme={theme} tall modos={["pct", "sep"]} /></div>}
+            {v.charts.cDM && <div className="d-card w12"><Cab t={`Demanda por mes, por ${v.dims.cG}`} info={INF.cDM} /><Nota nat="tarifa" act={v.dims.cG} /><Grafica config={v.charts.cDM} theme={theme} tall modos={["log", "clip"]} /></div>}
+            {v.charts.cG && <div className={"d-card " + (v.charts.cP ? "w8" : "w12")}><Cab t={`Tamaño de los inmuebles (demanda máxima), por ${v.dims.cG}`} info={INF.cG} /><Nota nat="tarifa" act={v.dims.cG} /><Grafica config={v.charts.cG} theme={theme} tall modos={["pct", "sep"]} /></div>}
             {v.charts.cP && <div className={"d-card " + (v.charts.cG ? "w4" : "w12")}><Cab t={`Recibos por ${v.recDim}`} info={INF.cP} /><Nota nat="tarifa" act={v.dims.cP} /><Grafica config={v.charts.cP} theme={theme} alto={v.recAlto} modos={["log"]} /></div>}
             <div className={"d-card " + (v.charts.c2 ? "w8" : "w12")}><Cab t="Costo mensual y consumo" info={INF.c1} /><Grafica config={v.charts.c1} theme={theme} modos={["clip"]} /></div>
             {v.charts.c2 && <div className="d-card w4"><Cab t={`Costo por ${v.dims.c2}`} info={INF.c2} /><Nota nat="tarifa" act={v.dims.c2} /><Grafica config={v.charts.c2} theme={theme} alto={v.altoDe("c2")} modos={["log"]} /></div>}
@@ -936,7 +1010,7 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
                 <thead><tr><th>RPU</th><th>Inmueble</th><th>Dependencia</th><th>Municipio</th><th>Tarifa</th><th>Historial</th><th className="n">Meses</th><th className="n">kWh</th><th className="n">kW máx.</th><th className="n">Total</th><th>Origen</th></tr></thead>
                 <tbody>{v.top.map((x) => (
                   <tr key={x.rpu}><td>{x.rpu}</td><td>{model.props[x.r.i].nombre}</td><td>{x.r.dep}</td><td>{x.r.mun}</td><td>{x.r.tar}</td><td>{x.desde} a {x.hasta}</td><td className="n">{x.n}</td>
-                    <td className="n">{N(x.kwh)}</td><td className="n">{N(x.kwMax)}</td><td className="n">{P(x.total)}</td><td>{x.cfe ? "Tabla CFE" : x.r.src === "precio" ? "Precio impreso" : "Recibo"}</td></tr>
+                    <td className="n">{N(x.kwh)}</td><td className="n">{N(x.kwMax)}</td><td className="n">{P(x.total)}</td><td>{x.cfe ? "Tabla CFE" : "Subtotal"}</td></tr>
                 ))}</tbody>
               </table></div>
             </div>
@@ -958,6 +1032,7 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
             </div>}
             <div className={"d-card " + (co.ranking2 ? "w8" : "w12")}><Cab t={co.dimC ? `Consumo mensual por ${co.dimC}` : "Consumo mensual"} info={INFCO.mensual} /><Grafica config={co.mensual} theme={theme} tall modos={co.dimC ? ["pct", "sep"] : undefined} /></div>
             {co.ranking2 && <div className="d-card w4"><Cab t={`Consumo por ${co.dimR}`} info={INFCO.ranking} /><Grafica config={co.ranking2} theme={theme} alto={Math.max(300, (co.ranking2.data.labels.length ?? 1) * 22 + 60)} modos={["log"]} /></div>}
+            <div className="d-card w12"><Cab t="Consumo contra demanda" info={INFCO.dem} /><Grafica config={co.cd} theme={theme} tall /></div>
             {co.cmp && <div className="d-card w12"><Cab t="Consumo mensual, año contra año" info={INFCO.cmp} /><Grafica config={co.cmp} theme={theme} /></div>}
             <div className="d-card w12"><h2>Recibos de mayor consumo en el periodo</h2>
               <div className="d-tw"><table>
@@ -973,29 +1048,41 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
 
         {tab === "dm" && (
           <div className="d-grid">
-            {d.ch1 && <div className="d-card w12"><Cab t={`Demanda máxima agregada por mes, por ${v.dims.cG}`} info={INF.ch1} /><Nota nat="tarifa" act={v.dims.cG} /><Grafica config={d.ch1} theme={theme} tall modos={["pct", "sep"]} /></div>}
+            {d.cmp.cfg && <div className="d-card w12"><Cab t={d.cmp.tipoRef === "contr" ? "Demanda máxima contra la demanda contratada" : "Demanda máxima contra el rango de su tarifa"} info={INF.cmpD} />
+              <Grafica config={d.cmp.cfg} theme={theme} alto={220} />
+              {d.cmp.revisar.length > 0 && <><p className="d-mut">Inmuebles a revisar (arriba, cerca del tope o {d.cmp.tipoRef === "contr" ? "con contratada de más" : "abajo del rango"}):</p>
+              <div className="d-tw"><table>
+                <thead><tr><th>RPU</th><th>Inmueble</th><th>Tarifa</th><th>Municipio</th><th className="n">Demanda máx.</th><th>Referencia</th><th className="n">Uso</th><th>Fuente</th><th>Situación</th></tr></thead>
+                <tbody>{d.cmp.revisar.slice(0, 40).map((x) => (
+                  <tr key={x.rpu}><td>{x.rpu}</td><td>{model.props[x.r.i].nombre}</td><td>{x.r.tarCFE}</td><td>{x.r.mun}</td><td className="n">{KW(x.kw)}</td><td>{x.refTxt}</td>
+                    <td className="n">{Number.isFinite(x.uso) ? (x.uso * 100).toFixed(0) + " %" : "—"}</td><td>{x.medida ? "Medida" : "Estimada"}</td><td><Punto c={COLOR_ESTADO[x.estado]} />{d.cmp.etqE(x)}</td></tr>
+                ))}</tbody>
+              </table></div>
+              {d.cmp.revisar.length > 40 && <p className="d-mut">Se muestran 40 de {N(d.cmp.revisar.length)}.</p>}</>}
+            </div>}
 
             <div className="d-card w12"><h2>Demanda máxima individual</h2>
               <div className="d-bar"><label>Tarifa<select value={tsel} onChange={(e) => setTsel(e.target.value)}><option value="">General (todas las tarifas)</option>
                 {v.tarsAll.map((x) => <option key={x}>{x}</option>)}</select></label></div>
-              <Kpis items={[["Demanda máx.", KW(d.indiv.max)], ["Promedio de máximos por recibo", KW(d.indiv.prom)], ["Recibos (RPU)", N(d.indiv.n)], ["Con lectura medida", N(d.indiv.medidos)]]} />
+              <Kpis items={[["Demanda máx.", KW(d.indiv.max)], ["Demanda típica (mediana)", KW(d.indiv.prom)], ["Recibos (RPU)", N(d.indiv.n)], ["Con lectura medida", N(d.indiv.medidos)]]} />
               {d.indiv.pico && <p className="d-mut">Pico: RPU {d.indiv.pico.rpu} · {model.props[d.indiv.pico.i].nombre} · {d.indiv.pico.tar} · {d.indiv.pico.per} ({d.indiv.pico.kwSrc}).</p>}
               <div className="d-tw"><table>
-                <thead><tr><th>RPU</th><th>Inmueble</th><th>Tarifa</th><th>Municipio</th><th>Mes del pico</th><th className="n">kW máx.</th><th>Fuente</th><th className="n">Meses</th></tr></thead>
+                <thead><tr><th>RPU</th><th>Inmueble</th><th>Tarifa</th><th>Municipio</th><th>Mes del pico</th><th className="n">kW máx.</th><th>Referencia</th><th className="n">Uso</th><th>Fuente</th><th className="n">Meses</th></tr></thead>
                 <tbody>{d.indiv.top.map((y) => (
                   <tr key={y.rpu}><td>{y.rpu}</td><td>{model.props[y.m.i].nombre}</td><td>{y.m.tar}</td><td>{y.m.mun}</td><td>{y.m.per}</td><td className="n">{KW(y.m.kwEst)}</td>
+                    <td>{d.indiv.refDe.get(y.rpu)?.refTxt ?? "—"}</td><td className="n">{(() => { const u = d.indiv.refDe.get(y.rpu)?.uso; return u != null && Number.isFinite(u) ? (u * 100).toFixed(0) + " %" : "—"; })()}</td>
                     <td>{y.m.kwSrc === "medida" ? (y.m.kwFix ? "Medida (corregida)" : "Medida") : "Estimada"}</td><td className="n">{y.n}</td></tr>
                 ))}</tbody>
               </table></div>
             </div>
 
-            {gkOps.length > 0 && <div className="d-card w12"><Cab t="Demanda agrupada" info={INF.ch2} />
+            {gkOps.length > 0 && <div className="d-card w12"><Cab t="Tamaño de los inmuebles por grupo" info={INF.ch2} />
               <div className="d-bar"><label>Agrupar por<select value={gkEf} onChange={(e) => setGk(e.target.value as GK)}>{(gkOps.length ? gkOps : GKS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label></div>
-              <Grafica config={d.ch2} theme={theme} tall modos={["log"]} />
+              <Grafica config={d.ch2} theme={theme} alto={Math.max(300, Math.min(d.grupos.length, 15) * 34 + 60)} modos={["log"]} />
               <div className="d-tw"><table>
-                <thead><tr><th>{GKS.find((x) => x[0] === gkEf)![1]}</th><th>Tarifas</th><th className="n">Inmuebles</th><th className="n">Recibos (RPU)</th><th className="n">kW máx. individual</th><th className="n">Pico mensual agregado</th><th className="n">% de meses estimados</th><th className="n">Factor de carga (medidos)</th><th className="n">Distribución + capacidad</th></tr></thead>
+                <thead><tr><th>{GKS.find((x) => x[0] === gkEf)![1]}</th><th>Tarifas</th><th className="n">Inmuebles</th><th className="n">Recibos (RPU)</th><th className="n">Demanda típica</th><th className="n">Inmueble más grande</th><th className="n">Fuera de referencia</th><th className="n">% de meses estimados</th><th className="n">Factor de carga (medidos)</th><th className="n">Distribución + capacidad</th></tr></thead>
                 <tbody>{d.grupos.map((x) => (
-                  <tr key={x.k}><td>{colorGrupo(x.k) && <Punto c={colorGrupo(x.k)} />}{x.k}</td><td>{x.tars}</td><td className="n">{N(x.n)}</td><td className="n">{N(x.rec)}</td><td className="n">{KW(x.kwMax)}</td><td className="n">{KW(x.pico)}</td>
+                  <tr key={x.k}><td>{colorGrupo(x.k) && <Punto c={colorGrupo(x.k)} />}{x.k}</td><td>{x.tars}</td><td className="n">{N(x.n)}</td><td className="n">{N(x.rec)}</td><td className="n">{KW(x.tip)}</td><td className="n">{KW(x.kwMax)}</td><td className="n">{N(x.fuera)}</td>
                     <td className="n">{x.est}</td><td className="n">{x.fc ? (x.fc * 100).toFixed(1) + " %" : "—"}</td><td className="n">{x.cDem ? M(x.cDem) : "—"}</td></tr>
                 ))}</tbody>
               </table></div>
@@ -1016,21 +1103,21 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
                 </table></div></div>}
             </>}
 
-            {d.L.length > 0 && <div className="d-card w12"><Cab t={`${GRUPO_BT}: proyección al máximo permitido`} info={INF.chL} />
-              <Kpis items={[["Recibos", N(nRec(d.L))], ["Σ demanda estimada", KW(d.Lest)], ["Proyección al máximo permitido", KW(d.Lpot)],
-                ["Holgura", KW(d.Lpot - d.Lest)], ["Uso del máximo", PCT(d.Lest, d.Lpot)]]} />
-              <Grafica config={d.chL} theme={theme} tall />
+            {d.uso.n > 0 && <div className="d-card w12"><Cab t={`${GRUPO_BT}: qué tan cerca están de su límite`} info={INF.chL} />
+              <Kpis items={[["Inmuebles", N(d.uso.n)], ["Demanda típica", KW(d.uso.tip)], ["Uso típico del límite", PCT(d.uso.pctTip, 1)], ["Inmueble más grande", KW(d.uso.max)],
+                ["Cerca del límite (80–100 %)", N(d.uso.cerca)], ["Arriba del límite", N(d.uso.arriba)]]} />
+              <Grafica config={d.chL} theme={theme} />
               <div className="d-tw"><table>
-                <thead><tr><th>{GKS.find((x) => x[0] === gkEf)![1]}</th><th>Tarifas</th><th className="n">Recibos (RPU)</th><th className="n">Σ estimada</th><th className="n">Proyección al máximo</th><th className="n">Holgura</th><th className="n">Uso del máximo</th></tr></thead>
+                <thead><tr><th>{GKS.find((x) => x[0] === gkEf)![1]}</th><th>Tarifas</th><th className="n">Inmuebles</th><th className="n">Uso típico del límite</th><th className="n">Cerca del límite</th><th className="n">Arriba del límite</th></tr></thead>
                 <tbody>{d.proy.map((x) => (
-                  <tr key={x.k}><td>{colorGrupo(x.k) && <Punto c={colorGrupo(x.k)} />}{x.k}</td><td>{x.tars}</td><td className="n">{N(x.n)}</td><td className="n">{KW(x.est)}</td><td className="n">{KW(x.pot)}</td><td className="n">{KW(x.hol)}</td><td className="n">{(x.uso * 100).toFixed(1)} %</td></tr>
+                  <tr key={x.k}><td>{colorGrupo(x.k) && <Punto c={colorGrupo(x.k)} />}{x.k}</td><td>{x.tars}</td><td className="n">{N(x.n)}</td><td className="n">{PCT(x.tip, 1)}</td><td className="n">{N(x.cerca)}</td><td className="n">{N(x.arriba)}</td></tr>
                 ))}</tbody>
               </table></div>
             </div>}
 
             <div className="d-card w12"><h2>Estimación de demanda sin lectura</h2>
               <Kpis items={[["Recibos (RPU) estimados", N(d.est.n)], ["Factor de carga de referencia", ref.fc.toFixed(3)], ["Rango del FC (p25–p75)", `${ref.fcBajo.toFixed(3)} – ${ref.fcAlto.toFixed(3)}`],
-                ["Demanda estimada (mes pico)", KW(d.est.pico)], ["Rango de la estimación", `${KW(d.est.bajo)} – ${KW(d.est.alto)}`]]} />
+                ["Demanda estimada típica", KW(d.est.pico)], ["Rango de la típica", `${KW(d.est.bajo)} – ${KW(d.est.alto)}`], ["Estimada más alta", KW(d.est.max)]]} />
               <p className="d-mut">Demanda estimada = kWh del mes / (24 · días · FC), con el FC de {N(ref.n)} {ref.origen}. Tarifas estimadas: {d.est.tar || "—"}. El detalle está en «Validación y metodología».</p>
             </div>
 
@@ -1038,12 +1125,16 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
                 <InfoPop titulo="Consideraciones de la validación">
                 <p>Los kW se capturan del recibo y a veces traen errores, como dígitos pegados (36,707 kW en un servicio que siempre marca 16–22 kW). Antes de calcular cualquier indicador, cada recibo se compara contra su propio historial y un mes se corrige si cumple alguna de estas condiciones:</p>
                 <ol>
-                  <li><b>Valor fuera de lo común:</b> su kW es {FACTOR_ATIPICO} o más veces la mediana de los kW del mismo RPU (con al menos {MIN_MUESTRA} meses) y el consumo de ese mes no subió en proporción. Si el consumo sí acompaña el salto (verano, más equipo funcionando), el pico es real y no se toca.</li>
-                  <li><b>kW en cero</b> en un mes con consumo.</li>
+                  <li><b>Fuera de su patrón:</b> su kW es {FACTOR_ATIPICO} o más veces lo que marcan los <b>otros</b> meses del mismo RPU (basta con {MIN_MUESTRA - 1} meses más; el mes revisado no cuenta para su propia referencia, así un solo valor disparado no la infla aunque haya pocos datos). Cuando hay menos de 6 meses de referencia, el patrón es el grupo más grande de meses parecidos entre sí (el mayor no más de {DISPERSION_PATRON} veces el menor), que debe ser al menos la mitad de los meses y 2 o más; así otro mes raro (por ejemplo, el mes siguiente a una refacturación) no impide ver el patrón. Si no hay ese grupo, no se corrige nada.
+                    <br />Los meses de {NOMBRE_VERANO} se comparan contra otros meses de verano; si el recibo solo tiene meses frescos, en verano se permite hasta {FACTOR_VERANO} veces su patrón antes de aplicar la regla, por el aire acondicionado.
+                    <br />Si el consumo sube en proporción y está dentro de su propio patrón, el pico es real y no se toca. Si el consumo también se disparó (por ejemplo 88,000 kWh en un servicio que marca 3,400–4,200), los dos datos están fuera de lo normal (refacturación, lectura acumulada o error de captura) y el kW se corrige.
+                    <br />Solo se corrigen <b>meses sueltos</b>: si cualquier otro mes del recibo marca un valor parecido (no más de {DISPERSION_PATRON} veces de diferencia), el inmueble de verdad llega a ese nivel (cambio de nivel, temporada de más uso) y el dato se respeta. Tampoco se revisan saltos chicos (menos de {MIN_KW_ATIPICO} kW o {N(MIN_KWH_ATIPICO)} kWh), que no mueven ningún indicador.</li>
+                  <li><b>Demanda dudosa:</b> el mes viene marcado así en Supabase (columna <code>demanda_dudosa</code>); es la misma marca que usa el mapa.</li>
+                  <li><b>kW en cero</b> en un mes con consumo (salvo meses con lectura estimada, que no tienen consumo real).</li>
                   <li><b>kW físicamente imposible:</b> menor que la demanda media del mes (kWh / 24 · días), lo que implicaría consumir más energía de la que permite esa demanda.</li>
                   <li><b>Excede el máximo de su tarifa:</b> más de {PDBT_MAX_KW} kW en PDBT o más de {LIMITE_DOMESTICA_KW} kW en domésticas.</li>
                 </ol>
-                <p>El valor corregido es la <b>media de los meses válidos del mismo RPU</b>, sin bajar de la demanda media del mes. Si el recibo no tiene meses válidos, ese mes queda fuera de los indicadores de demanda. El kW original se conserva y aparece en esta tabla.</p>
+                <p>El valor corregido es la <b>media de los meses válidos del mismo RPU</b>, de la misma temporada (verano o resto del año) cuando los hay, sin bajar de la demanda media del consumo; si ese consumo también estaba fuera de patrón, el mínimo sale del consumo que marca el patrón. Si el recibo no tiene meses válidos, ese mes queda fuera de los indicadores de demanda. El kW original se conserva y aparece en esta tabla.</p>
                 </InfoPop></div>
               <Kpis items={[["Meses con lectura de kW", N(d.val.meses)], ["Recibos (RPU) con kW", N(d.val.rpu)], ["Meses corregidos", N(d.val.corr)], ["Meses descartados", N(d.val.desc)], ["% de meses ajustados", PCT(d.val.fix.length, d.val.meses)]]} />
               {d.val.motivos.length > 0 ? <div className="d-tw"><table>
@@ -1107,10 +1198,10 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
               {n.ch && <div className="d-card w12"><Cab t={`Costo y consumo por ${n.dimN}`} info={INF.nc} /><Nota nat="zona de carga" act={n.dimN} /><Grafica config={n.ch} theme={theme} modos={["log"]} /></div>}
               <div className="d-card w12"><h2>Resumen por zona de carga</h2>
                 <div className="d-tw"><table>
-                  <thead><tr><th>Zona de carga</th><th>División CFE</th><th className="n">NodosP</th><th>Municipios</th><th className="n">Inmuebles</th><th className="n">MWh</th><th className="n">Gasto</th><th className="n">$/kWh</th><th className="n">Σ kW máx. GDMTH/GDMTO</th></tr></thead>
+                  <thead><tr><th>Zona de carga</th><th>División CFE</th><th className="n">NodosP</th><th>Municipios</th><th className="n">Inmuebles</th><th className="n">MWh</th><th className="n">Gasto</th><th className="n">$/kWh</th><th className="n">Demanda típica</th><th className="n">Inmueble más grande</th></tr></thead>
                   <tbody>{n.res.map((x) => (
                     <tr key={x.z} className="d-click" onClick={() => setZc(x.z)}><td><Punto c={colores.zc(x.z)} />{x.z}</td><td>{x.divs || "—"}</td><td className="n">{N(x.nn)}</td><td style={{ whiteSpace: "normal", minWidth: 220 }}>{x.muns.join(", ")}</td><td className="n">{N(x.inm)}</td>
-                      <td className="n">{N(x.kwh / 1000)}</td><td className="n">{M(x.gasto)}</td><td className="n">{x.u ? P(x.u) : "—"}</td><td className="n">{KW(x.dem)}</td></tr>
+                      <td className="n">{N(x.kwh / 1000)}</td><td className="n">{M(x.gasto)}</td><td className="n">{x.u ? P(x.u) : "—"}</td><td className="n">{KW(x.demTip)}</td><td className="n">{KW(x.dem)}</td></tr>
                   ))}</tbody>
                 </table></div>
               </div>
@@ -1134,92 +1225,7 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
             </>}
           </div>
         )}
-        {tab === "vm" && (
-          <div className="d-grid">
-            <Sec t="Cambios realizados">
-              <div className="d-tw"><table className="d-wrap">
-                <thead><tr><th>Cambio</th><th>Antes</th><th>Ahora</th><th>Por qué</th></tr></thead>
-                <tbody>{CAMBIOS.map((x) => <tr key={x[0]}><td><b>{x[0]}</b></td><td>{x[1]}</td><td>{x[2]}</td><td>{x[3]}</td></tr>)}</tbody>
-              </table></div>
-            </Sec>
 
-            <Sec t="1. Origen de los datos" w="">
-              <p>Los datos vienen del historial que ya carga el mapa desde Supabase; el tablero no hace otra consulta. Se analizan los meses de {MES_DESDE} a {MES_HASTA}; los demás se descartan antes de cualquier cálculo (el periodo se cambia en <code>MES_DESDE</code> y <code>MES_HASTA</code> de <code>rows.ts</code>).</p>
-              <ul>
-                <li><b>Recibo = RPU.</b> Cada RPU único es un archivo de recibo; las filas son los meses de su historial. Por eso «recibos» cuenta RPU distintos y «meses de historial» cuenta filas.</li>
-                <li><b>Meses repetidos.</b> Si un RPU trae el mismo mes dos veces, cuenta una sola: se queda el que trae importe, luego el que trae precio impreso y, si empatan, el de mayor consumo.</li>
-                <li><b>Tarifas normalizadas.</b> «Tarifa 1A», «1a» y «1A» son la misma; igual «gdmth » y «GDMTH».</li>
-                <li><b>Zona de carga.</b> Cada inmueble se liga por su municipio a la zona de carga más frecuente de sus NodosP en el catálogo del CENACE.</li>
-              </ul>
-            </Sec>
-
-            <Sec t="2. Costo de cada mes" w="">
-              <p>Cada mes toma su costo de la primera fuente disponible:</p>
-              <ol>
-                <li><b>Importe del recibo</b> (formato 2).</li>
-                <li><b>kWh × precio impreso</b> cuando el recibo no trae importe (formato 1).</li>
-                <li><b>Tabla oficial de CFE</b> cuando no hay ni importe ni precio.</li>
-              </ol>
-              <p><b>GDMTH</b> siempre se costea con la tabla oficial de CFE de su nodo (división tarifaria) y mes; lo facturado queda para comparar{t.nG ? <> ({N(t.nG)} meses: facturado {M(t.fact)}, calculado {M(t.calc)}, diferencia {(dif >= 0 ? "+" : "") + dif.toFixed(1)} %)</> : null}.</p>
-              <p>El <b>costo unitario por tarifa</b> solo usa importe o precio impreso; no mezcla costos estimados.</p>
-            </Sec>
-
-            <Sec t="3. Cálculo con la tabla oficial de CFE">
-              <p>Las tablas se descargan de «Conoce tu tarifa» de CFE para todos los municipios de Tamaulipas y se agrupan por nodo: los municipios con la misma tabla de cargos forman un grupo. Si falta el mes exacto, se usa el publicado más cercano.</p>
-              <ul>
-                <li>Cargos en <b>$/mes</b> × 1; en <b>$/kWh</b> × kWh del mes; en <b>$/kW</b> × demanda facturable = mín(kW máx., kWh / (24 · días · FC)), con FC de {Object.entries(FACTOR_CARGA).map(([k, x]) => `${x} en ${k}`).join(" y ")}.</li>
-                <li>El recibo no trae kWh por periodo horario: la energía GDMTH se reparte {Math.round(PERFIL_HORARIO.base * 100)} % base, {Math.round(PERFIL_HORARIO.intermedia * 100)} % intermedia y {Math.round(PERFIL_HORARIO.punta * 100)} % punta.</li>
-                <li>La capacidad se cobra sobre el kW máximo (el historial no trae la demanda en punta). Se suma {Math.round(IVA * 100)} % de IVA; no incluye DAP.</li>
-              </ul>
-              {t.vig.length > 0 ? <div className="d-tw"><table>
-                <thead><tr><th>Tarifa</th><th>Nodo / división</th><th className="n">Municipios</th><th>Mes</th>{t.cols.map(([k, l]) => <th key={k} className="n">{l}</th>)}</tr></thead>
-                <tbody>{t.vig.map((x) => (
-                  <tr key={x.tar + x.g.id}><td>{x.tar}</td><td>{x.g.division}</td><td className="n" title={x.g.municipios.join(", ")}>{x.g.municipios.includes("*") ? "Todos" : x.g.municipios.length}</td><td>{x.ult}</td>
-                    {t.cols.map(([k]) => <td key={k} className="n">{x.c[k] ? `${x.c[k].v.toLocaleString("es-MX", { maximumFractionDigits: 4 })} ${x.c[k].u}` : "—"}</td>)}</tr>
-                ))}</tbody>
-              </table></div> : <p className="d-mut">Aún no hay tablas descargadas (<code>node scripts/scrape-tarifas-cfe.mjs</code>).</p>}
-            </Sec>
-
-            <Sec t="4. Validación de la demanda medida" w="">
-              <p>Se aplica antes de cualquier cálculo. Un mes se corrige si su kW es {FACTOR_ATIPICO} o más veces la mediana del RPU sin que el consumo lo respalde (el kWh creció menos de {Math.round(RESPALDO_CONSUMO * 100)} % de lo que creció el kW), si viene en cero con consumo, si es menor que kWh / (24 · días) o si excede el máximo de su tarifa.</p>
-              <p>El reemplazo es la media de los meses válidos del mismo RPU. Si no hay meses válidos, el mes no entra a los indicadores de demanda. Resultado del filtro actual: {N(d.val.corr)} meses corregidos y {N(d.val.desc)} descartados de {N(d.val.meses)}.</p>
-            </Sec>
-
-            <Sec t="5. Demanda estimada (PDBT y recibos sin lectura)" w="">
-              <p>Demanda estimada = kWh del mes / (24 · días · FC). El FC se obtiene de los propios datos: la mediana del factor de carga de servicios medidos de tamaño parecido (kW mediano ≤ {PDBT_MAX_KW} y consumo mensual hasta el percentil 95 de los no medidos). Primero se saca la mediana de cada RPU y luego la mediana entre RPU.</p>
-              <p>Filtro actual: FC {ref.fc.toFixed(3)} de {N(ref.n)} {ref.origen}, con rango {ref.fcBajo.toFixed(3)}–{ref.fcAlto.toFixed(3)}. En PDBT el resultado no pasa de {PDBT_MAX_KW} kW. Si hay menos de 5 servicios similares se usan todos los medidos, y si no hay ninguno, FC = {FC_DEFECTO}.</p>
-            </Sec>
-
-            <Sec t="6. Demanda general y proyección" w="">
-              <ul>
-                <li><b>Demanda general aproximada:</b> en cada mes se suma la demanda de cada recibo (medida y validada, o estimada) y se reporta el mes más alto. No se suman los máximos de meses distintos, porque eso sobrestima.</li>
-                <li><b>Demanda máxima individual:</b> el recibo con mayor demanda en un mes, de la tarifa elegida o de todas.</li>
-                <li><b>Proyección al máximo permitido:</b> recibos PDBT y domésticos × su máximo ({PDBT_MAX_KW} kW en PDBT; {LIMITE_DOMESTICA_KW} kW en domésticas, supuesto porque la tarifa doméstica no fija un tope).</li>
-              </ul>
-            </Sec>
-
-            <Sec t="7. Calidad del costo" w="">
-              <p>Un mes se marca como atípico si su $/kWh efectivo es menor que ${PRECIO_MIN} o mayor que ${PRECIO_MAX}; casi siempre son kWh mal capturados o un mes de puros cargos fijos. Siguen sumando al gasto.</p>
-            </Sec>
-
-            <div className="d-card w12"><h2>Origen del costo en el filtro actual</h2>
-              <div className="d-tw"><table>
-                <thead><tr><th>Origen del costo</th><th className="n">Meses de historial</th><th className="n">MWh</th><th className="n">% del consumo</th><th className="n">Gasto</th><th className="n">$/kWh</th></tr></thead>
-                <tbody>{v.orig.map((x) => (
-                  <tr key={x.k}><td>{ORIGEN[x.k]}</td><td className="n">{N(x.n)}</td><td className="n">{N(x.kwh / 1000)}</td><td className="n">{PCT(x.kwh, K)}</td><td className="n">{x.k === "none" ? "—" : M(x.g)}</td><td className="n">{x.k === "none" || !x.kwh ? "—" : P(x.g / x.kwh)}</td></tr>
-                ))}</tbody>
-              </table></div>
-              {v.atip.length > 0 && <>
-                <h2 style={{ marginTop: 14 }}>Meses con $/kWh atípico</h2>
-                <div className="d-tw"><table>
-                  <thead><tr><th>RPU</th><th>Inmueble</th><th>Periodo</th><th className="n">kWh</th><th className="n">Facturado</th><th className="n">$/kWh</th><th>Fuente</th></tr></thead>
-                  <tbody>{v.atip.slice(0, 15).map((r) => (
-                    <tr key={r.rpu + r.per}><td>{r.rpu}</td><td>{model.props[r.i].nombre}</td><td>{r.per}</td><td className="n">{N(r.kwh)}</td><td className="n">{P(r.fact)}</td><td className="n x">{r.kwh ? P(r.fact / r.kwh) : "—"}</td><td>{r.hasImp ? "Importe" : "Precio impreso"}</td></tr>
-                  ))}</tbody>
-                </table></div></>}
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );
