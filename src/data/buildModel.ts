@@ -54,6 +54,7 @@ export function buildModel(data: RawData): Model {
       feature: r.interconexion || null, bidir: r.medidor_bidireccional === true, nodo: r.nodo, valid: r.ubicacion_validada ?? null,
       confiable: r.ubicacion_confiable ?? null, division: r.division || "", zonaDist: r.zona_distribucion || "",
       lectEst: flag(r.recibo_lectura_estimada), kwhEst: num(r.recibo_kwh_estimado),
+      contratada: num(r.demanda_contratada ?? r.carga_contratada ?? r.kw_contratados ?? r.kw_contratado),
       demandaAplica: r.demanda_aplica ?? null, formato: r.historial_formato == null ? null : +r.historial_formato,
       region: r.region_nombre || "", regionTipo: r.region_tipo || "Colonia", endRaw: r[CONFIG.endColumn] ?? null, endKey: null,
       lat, lon, hasXY: isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0,

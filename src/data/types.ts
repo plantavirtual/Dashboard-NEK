@@ -28,6 +28,8 @@ export interface Prop {
   division: string; zonaDist: string;
   /** El último recibo no trae lectura real; kwhEst = kWh que probablemente se cobraron (NaN si no aplica) */
   lectEst: boolean; kwhEst: number;
+  /** Demanda contratada del inmueble en kW (NaN si Supabase no la trae). La usa el tablero de recibos. */
+  contratada: number;
   demandaAplica: boolean | null; formato: number | null;
   region: string; regionTipo: string; endRaw: string | null; endKey: string | null;
   lat: number; lon: number; hasXY: boolean;
