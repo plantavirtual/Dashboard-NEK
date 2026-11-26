@@ -46,7 +46,7 @@ export function SidePanel() {
     const st = histStats(hist), v12 = ventana12(hist), s12 = histStats(v12.h);
     const sinDemanda = p.demandaAplica === false;
     const det: [string, string][] = [
-      ["Dependencia", p.dependencia], ["Zona", (zone ? zone.nombre : "—") + (sub && !sub.single ? " · " + sub.nombre : "")],
+      ["Dependencia", p.dependencia], ["Zona de Agrupación", (zone ? zone.nombre : "—") + (sub && !sub.single ? " · " + sub.nombre : "")],
       ...(p.region ? [[p.regionTipo, p.region] as [string, string]] : []), ["Municipio", p.municipio || "—"], ["RPU", p.rpu || "—"],
       // División y zona de distribución de CFE (del código de la cuenta). El número de zona se repite entre divisiones
       ["División CFE", p.division || "Sin recibo"], ["Zona de distribución", p.zonaDist || "Sin recibo"],
