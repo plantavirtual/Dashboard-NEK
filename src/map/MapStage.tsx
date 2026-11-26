@@ -56,7 +56,7 @@ export function MapStage() {
       m.on("move", updateView);
       setMc({ map: m, fitZoom });
       // El mapa de calles va al final para no retrasar el resto; sin tamaulipas.pmtiles el mapa sigue sin calles
-      void instalarMapaBase(m, { archivo: "tamaulipas-lite.pmtiles", recursos: "basemap-assets", zoomCalles: ZOOM_CALLES, tipografia: "Lato" });
+      void instalarMapaBase(m, { archivo: "tamaulipas.pmtiles", recursos: "basemap-assets", zoomCalles: ZOOM_CALLES, tipografia: "Lato" });
     });
     return () => { m.remove(); setMc(null); setPointsReady(false); };
   }, []);
