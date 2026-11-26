@@ -44,7 +44,7 @@ export function MapStage() {
     m.touchZoomRotate.disableRotation();
     // Créditos (OpenStreetMap, Protomaps, INEGI) en la esquina inferior izquierda. styles.css los sube por
     // encima del panel inferior cuando el panel los taparía.
-    m.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: "Límites: INEGI 2022 · Natural Earth · Uso de suelo: INEGI Serie V" }), "bottom-left");
+    m.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: "Límites: INEGI 2022 · Natural Earth · Uso de suelo: INEGI Serie V · Uso de mapa: OSM/Protomaps" }), "bottom-left");
     const updateView = () => {
       const z = m.getZoom();
       useStore.getState().setView(z < VIEW2 ? 1 : z < VIEW3 ? 2 : 3);
