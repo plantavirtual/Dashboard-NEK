@@ -3,7 +3,7 @@ import Chart from "chart.js/auto";
 import "@fontsource/ibm-plex-sans/400.css";
 import "@fontsource/ibm-plex-sans/500.css";
 import "@fontsource/ibm-plex-sans/600.css";
-import "./dashboard copy.css";
+import "./dashboard.css";
 import { useStore } from "../store";
 import { TARIFA_COLORS } from "../lib/constants";
 import { esDomestica, MES_DESDE, MES_HASTA, FACTOR_ATIPICO, GRUPO_BT, normTarifa, FC_DEFECTO, LIMITE_DOMESTICA_KW, MIN_MUESTRA, PDBT_MAX_KW, FACTOR_VERANO, NOMBRE_VERANO, DISPERSION_PATRON, MIN_KW_ATIPICO, MIN_KWH_ATIPICO, MOTIVO_SIN_PRECIO, RESPALDO_CONSUMO, TAR_DEMANDA, buildRows, kwPorConsumo, limiteKw, normTxt, referenciaFc, type Row } from "./rows";
