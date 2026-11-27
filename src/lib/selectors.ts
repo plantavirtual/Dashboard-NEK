@@ -21,6 +21,8 @@ export const matrixOf = (model: Model, m: Measure): Float64Array => (m === "cons
 
 export interface Agg {
   count: number; nk: number; total: number;
+  /** Inmuebles con demanda máxima registrada en el mes: de ellos sale avg.demanda */
+  nd: number;
   avg: { consumo: number; demanda: number; precio: number };
   top?: string | null; topShare?: number; color: string;
 }
@@ -52,14 +54,14 @@ export function aggregate(model: Model, list: Int32Array, mi: number, colorBy: C
   if (cat && counts) {
     let top = -1, tn = 0;
     for (let c = 0; c < counts.length; c++) if (counts[c] > tn) { top = c; tn = counts[c]; }
-    return { count, nk, total: tot, avg, top: top >= 0 ? model.cats[cat].labels[top] : null, topShare: count ? tn / count : 0, color: top >= 0 ? model.cats[cat].colors[top] || NODATA : NODATA };
+    return { count, nk, nd: ds.length, total: tot, avg, top: top >= 0 ? model.cats[cat].labels[top] : null, topShare: count ? tn / count : 0, color: top >= 0 ? model.cats[cat].colors[top] || NODATA : NODATA };
   }
   const m = measureOf(colorBy);
   const v = m === "precio" ? median(ps) : avg[m];
   const sc = model.scales[m];
   let i = -1;
   if (isFinite(v) && v > 0) { i = 0; while (i < sc.breaks.length && v >= sc.breaks[i]) i++; }
-  return { count, nk, total: tot, avg, color: i < 0 ? NODATA : sc.colors[i] };
+  return { count, nk, nd: ds.length, total: tot, avg, color: i < 0 ? NODATA : sc.colors[i] };
 }
 
 /** Historial completo de un inmueble, reconstruido de las columnas planas */
