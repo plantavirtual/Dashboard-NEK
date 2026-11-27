@@ -18,8 +18,9 @@ const P = (n: number) => "$" + n.toLocaleString("es-MX", { minimumFractionDigits
 const M = (n: number) => (Math.abs(n) < 1e6 ? P(n) : "$" + (n / 1e6).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " M");
 const N = (n: number) => Math.round(n).toLocaleString("es-MX");
 const KW = (n: number) => n.toLocaleString("es-MX", { maximumFractionDigits: 1 }) + " kW";
+/** kW → megawatts con 2 decimales */
+const MW = (kw: number) => (kw / 1000).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " MW";
 const PCT = (a: number, b: number) => (b ? ((a / b) * 100).toFixed(1) : "0.0") + " %";
-const FECHA = (s: string) => { const d = new Date(s); return isNaN(+d) ? s : d.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }); };
 
 const PAL = {
   light: { c: ["#ab0033", "#bc955c", "#54565a", "#ddc9a3", "#cd6685"], card: "#fff", mut: "#54565a", bd: "#e6dcc6",
@@ -499,7 +500,9 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
     // Resumen anual: consumo y gasto sumados por año; demanda del año = la demanda máxima del inmueble más grande en ese año
     const anual = [...new Set(mons.map((k) => k.slice(0, 4)))].map((y) => {
       const ix = mons.filter((k) => k.startsWith(y)), a = R.filter((r) => r.per.startsWith(y)), dy = demandas(a);
-      return { y, meses: ix.length, kwh: sum(a, kwh), gasto: sum(a, tot), dem: Math.max(0, ...dy.map((x) => x.kw)), tipica: mediana(dy.map((x) => x.kw)) };
+      return { y, meses: ix.length, kwh: sum(a, kwh), gasto: sum(a, tot), dem: Math.max(0, ...dy.map((x) => x.kw)), tipica: mediana(dy.map((x) => x.kw)),
+        // Mes con la mayor suma de demandas máximas (la misma suma de la gráfica «Suma de demandas máximas por mes»)
+        ...ix.reduce((b, m) => { const t = g(pm, m).reduce((s2, r) => s2 + (r.kwEst > 0 ? r.kwEst : 0), 0); return t > b.picoKw ? { picoKw: t, picoMes: m } : b; }, { picoKw: 0, picoMes: "—" }) };
     });
 
     // Dimensiones de cada gráfica según los filtros
@@ -955,7 +958,7 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
     pg: [["Gasto total sin IVA" + etqF, M(T)], ["Consumo total" + etqF, N(K / 1000) + " MWh"],
       ...v.anual.flatMap((a): [string, string][] => [
         [`Consumo ${a.y}${a.meses < 12 ? ` (${a.meses} meses)` : ""}${etqF}`, N(a.kwh / 1000) + " MWh"],
-        [`Demanda máx. ${a.y}${a.meses < 12 ? ` (${a.meses} meses)` : ""}${etqF}`, KW(a.dem)]]),
+        [`Demanda máxima del mes pico ${a.y}${a.meses < 12 ? ` (${a.meses} meses)` : ""}${etqF}`, `${MW(a.picoKw)} · ${a.picoMes}`]]),
       ["Costo promedio sin IVA", P(costoProm) + " /kWh"],  ["Inmuebles", N(distinct(R, (r) => r.i))]],
     co: [["Consumo total" + etqF, N(K / 1000) + " MWh"], ["Consumo mensual promedio", N(K / 1000 / Math.max(1, persF.length)) + " MWh"],
       ["Consumo promedio por recibo", N(K / Math.max(1, nRec(R))) + " kWh"], ["Meses con lectura estimada", N(v.lecEst.length)], ["Meses con consumo atípico", N(v.consAt.length)]],
@@ -988,8 +991,8 @@ export function Dashboard({ onBack }: { onBack: () => void }) {
             ? <><b>{N(nRec(rows))} recibos (RPU) · {N(rows.length)} meses de historial · {N(model.N)} inmuebles</b> · periodo analizado {MES_DESDE} a {MES_HASTA}{periodo && periodo !== `${MES_DESDE} a ${MES_HASTA}` ? <> (con datos: {periodo})</> : null}.{" "}</>
             : <><b>Sin historial.</b> Revisa la conexión con Supabase y los permisos de las vistas.{" "}</>}
           {!of ? "Cargando tarifas CFE y NodosP…" : <>
-            {of.tar ? <>Tarifas CFE consultadas el {FECHA(of.tar.generado)}. </> : <>Sin tarifas oficiales (<code>node scripts/scrape-tarifas-cfe.mjs</code>). </>}
-            {of.nodos ? <>Catálogo NodosP {of.nodos.version}. </> : <>Sin catálogo de NodosP (<code>node scripts/scrape-nodosp-cenace.mjs</code>). </>}
+            {of.tar ? <>Tarifas CFE cargadas. </> : <>Sin tarifas oficiales (<code>node scripts/scrape-tarifas-cfe.mjs</code>). </>}
+            {of.nodos ? <>Catálogo de NodosP cargado. </> : <>Sin catálogo de NodosP (<code>node scripts/scrape-nodosp-cenace.mjs</code>). </>}
           </>}
         </div>
 
