@@ -9,13 +9,18 @@ import type { ColorBy } from "../data/types";
 
 function cardText(a: Agg | undefined, colorBy: ColorBy, nombre: string) {
   if (!a) return { val: "", title: nombre };
+  const inm = (n: number) => `${nfInt.format(n)} ${n === 1 ? "inmueble" : "inmuebles"}`;
+  const dem = !isCatMode(colorBy) && measureOf(colorBy) === "demanda";
   let val = fmtEnergy(a.total);
   if (isCatMode(colorBy)) { if (a.top) val += ` · ${Math.round((a.topShare ?? 0) * 100)}% ${a.top}`; }
   else if (measureOf(colorBy) === "precio") val += " · " + fmtPrice(a.avg.precio);
-  else if (measureOf(colorBy) === "demanda") val += " · mediana " + fmtKw(a.avg.demanda);
+  // La demanda sale de menos inmuebles que el consumo (sólo algunas tarifas la miden): se dice de cuántos
+  else if (dem) val += a.nd ? ` · dem. máx. mediana ${fmtKw(a.avg.demanda)} (${inm(a.nd)})` : " · sin demanda registrada";
   // "312 de 340 inmuebles" si a algunos les falta el mes, "340 inmuebles" si no
   val = (a.nk < a.count ? `${nfInt.format(a.nk)} de ${nfInt.format(a.count)}` : nfInt.format(a.count)) + " inmuebles · " + val;
-  return { val, title: `${nombre} — ${nfInt.format(a.count)} inmuebles; ${nfInt.format(a.nk)} con consumo en el mes forman el total` };
+  let title = `${nombre} — ${nfInt.format(a.count)} inmuebles; ${nfInt.format(a.nk)} con consumo en el mes forman el total`;
+  if (dem && a.nd) title += `. Demanda: mediana de la demanda máxima registrada en el mes, entre los ${inm(a.nd)} cuya tarifa mide demanda`;
+  return { val, title };
 }
 
 /* className y hidden son constantes a propósito: React no los vuelve a tocar y el motor los maneja a mano
